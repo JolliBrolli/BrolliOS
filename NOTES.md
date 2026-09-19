@@ -1,0 +1,766 @@
+# NOTES.md — OpenAgentIsland design & architecture
+
+The "how it works and why" reference. Read this first to understand the project.
+Stable-ish: update on architecture decisions, not every edit. Chronological work
+log lives in `PROGRESS.md`.
+
+---
+
+## 1. Reference findings — Hyprfabricated (Fabric/Python+GTK)
+
+Studied READ-ONLY in `~/Projects/island-reference/hyprfabricated/`. We translate the
+*technique*, not the Python.
+
+### 1.1 `modules/notch.py` — notch state model
+
+**Key insight: Hyprfabricated's notch is NOT a width/height tween state machine.**
+It's a **GTK `Stack`** that swaps full-size child widgets and *interpolates its own
+size* to fit whichever child is showing. The "morph" is an emergent effect of:
+
+```python
+self.stack = Stack(name="notch-content", transition_type="crossfade",
+                   transition_duration=250, children=[compact, launcher, dashboard,
+                   overview, emoji, power, tools, tmux, cliphist])
+self.stack.set_interpolate_size(True)   # <-- animates size between children
+self.stack.set_homogeneous(False)       # <-- children keep their own size
+```
+
+Each child has an explicit fixed size (`set_size_request`), e.g. compact `260×40`,
+dashboard `1093×472`, launcher `480×244`. Switching child → Stack animates from the
+old size to the new size over 250 ms (crossfade). That's the whole morph.
+
+**Composition (left / notch / right):** the notch window itself is a single
+horizontal `CenterBox` (`notch-box`):
+- `start_children = corner_left`  — a `MyCorner("top-right")` drawing the rounded
+  notch shoulder on the left.
+- `center_children = stack`       — the morphing content Stack.
+- `end_children = corner_right`   — `MyCorner("top-left")` rounded shoulder on the right.
+
+So Hyprfabricated's "left/right" pieces around the notch are just **decorative
+rounded corners**, not functional islands. The functional left/right clusters
+(workspaces, metrics, tray, clock) live in a *separate* full-width **bar**
+(`modules/bar.py`), which our design discards. **We split the bar's clusters into two
+independent floating islands** (`IslandLeft`, `IslandRight`) — a structural change,
+not a port.
+
+**Idle ("compact") state:** itself a nested `Stack` (`compact_stack`,
+slide-up-down, 100 ms) cycling three children:
+- `user_label` → `username@hostname`
+- `active_window_box` → app icon + active window title (default visible child)
+- `player_small` → tiny media widget
+
+Triggers that switch the compact sub-state:
+- **Scroll** on the compact area cycles the three children (`_on_compact_scroll`,
+  250 ms debounce via `_scrolling` flag + timeout).
+- MPRIS `player-appeared` → show `player_small`; `player-vanished` → back to
+  `active_window_box`. **(Reactive to the actual player signal, not a UI flag.)**
+
+**Show / hide (reveal):** a `Revealer` (`slide-down`, 250 ms) wraps the notch box.
+Visibility is driven by **occlusion checking** (`utils/occlusion.py`): every 250 ms,
+if the top 40 px of the screen is covered by a window AND the notch isn't hovered /
+open / temporarily-pinned, the revealer collapses. On active-window-class change the
+notch is briefly force-revealed for 500 ms (`on_active_window_changed` →
+`_prevent_occlusion`). **Single window, no multi-monitor `Variants` — only renders on
+one output. This is the gap we beat.**
+
+**Open / expand:** `open_notch(widget_name)` sets keyboard mode exclusive, swaps the
+Stack's visible child to the requested big widget (dashboard/launcher/etc.), and
+toggles bar revealers. `close_notch()` returns to `compact`. Lots of
+toggle-if-already-open logic; not relevant to our morph-OSD model.
+
+### 1.2 `utils/animator.py` — tween technique
+
+A hand-rolled `Animator` service: ticks a float `value` from `min_value`→`max_value`
+across `duration` using a **cubic-bezier ease**, at ~60 fps (`GLib.timeout_add(16,…)`
+or a widget tick callback), emitting `finished` at the end.
+
+```python
+def do_interpolate_cubic_bezier(self, t):           # only Y control points used
+    y = (0, bezier[1], bezier[3], 1)
+    return (1-t)**3*y[0] + 3*(1-t)**2*t*y[1] + 3*(1-t)*t**2*y[2] + t**3*y[3]
+def do_ease(self, t):  return lerp(min, max, interp_cubic_bezier(t))
+```
+
+It only uses the Y components of the bezier (a simplified 1-D ease curve), lerps the
+target range, and drives any float property (size, opacity).
+
+**Quickshell equivalent is strictly simpler and better:** Qt has native bezier
+easing, so we never reimplement a tick loop. Use:
+
+```qml
+Behavior on width  { NumberAnimation { duration: 400; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+// or the exact reference curve:
+Behavior on height { NumberAnimation { duration: 350; easing.bezierCurve: [0.34,1.56,0.64,1, ...] } }
+```
+
+The "goey/spring" feel = `Easing.OutBack` with overshoot (or a custom bezier).
+
+### 1.3 Fabric → Quickshell mapping table
+
+| Hyprfabricated (Fabric/GTK) concept | Our Quickshell/QML equivalent |
+|---|---|
+| `Window(layer, anchor, margin, exclusivity)` | `PanelWindow { WlrLayershell.layer; anchors; margins; exclusiveZone }` |
+| GTK `Stack` + `set_interpolate_size` (morph) | state property (`islandState`) driving `width/height` + `Behavior … NumberAnimation` |
+| `Revealer` (slide-down show/hide) | `opacity`/`implicitHeight` driven by state + `Behavior`, or `Revealer` widget (`qs.modules.common.widgets`) |
+| `utils/animator.py` cubic-bezier tween | native `easing.bezierCurve` / `Easing.OutBack` on `NumberAnimation` |
+| `compact_stack` scroll-cycle of idle widgets | optional: `StackLayout`/state index, scroll handler on idle pill |
+| `occlusion.py` + per-frame occlusion reveal | **dropped** — we float with gaps, always visible; multi-monitor via `Variants` |
+| `MyCorner` rounded notch shoulders | `Rectangle { radius }` on the pill; optional `screenCorners` module already in end-4 |
+| `ActiveWindow` formatter (win title) | end-4 `Hyprland`/`ActiveWindow.qml` already in `modules/ii/bar/` |
+| `PlayerSmall` / `modules/player.py` | `MprisController` service + end-4 `mediaControls/` |
+| `modules/metrics.py` (CPU/RAM/SWAP) | `ResourceUsage` service + `bar/Resources.qml` |
+| `modules/cavalcade.py` (cava) | `scripts/cava` + end-4 cava in `mediaControls/` |
+| `modules/bar.py` left/right clusters | split into `IslandLeft.qml` / `IslandRight.qml` |
+| single-window notch (no multimon) | every island wrapped in `Variants { model: Quickshell.screens }` |
+
+---
+
+## 2. Architecture — three floating islands
+
+**No full-width bar.** Three independent rounded `PanelWindow`s, transparent
+background, always visible, on **every** monitor (each wrapped in
+`Variants { model: Quickshell.screens; PanelWindow { required property var modelData; screen: modelData } }`).
+Wallpaper breathes through the gaps.
+
+```
+┌─ IslandLeft ─┐        ┌──── IslandNotch ────┐        ┌─ IslandRight ─┐
+│ workspaces · │        │  morphing OSD/clock │        │ cpu·clk·bat·  │
+│ window title │        │  + media visualizer │        │ tray·net·bt   │
+└──────────────┘        └─────────────────────┘        └───────────────┘
+        top-left                 top-center                    top-right
+```
+
+### 2.1 IslandLeft — `modules/ii/island/IslandLeft.qml`
+Workspace dots (expand for active, Hyprfabricated-style) + active window title.
+- Left-click → toggle `GlobalStates.sidebarLeftOpen`.
+- Right-click workspaces → `GlobalStates.overviewOpen`.
+
+### 2.2 IslandNotch — `modules/ii/island/IslandNotch.qml` (the star)
+`property string islandState`. State machine:
+
+| State | Content | Trigger | Exit |
+|---|---|---|---|
+| `idle` | minimal clock / small info (**NOT invisible**) | default | — |
+| `volume` | volume icon + level bar | `Audio.sink.audio.volume` **value** change | ~2 s timer |
+| `brightness` | brightness icon + level bar | `Brightness` value change | ~2 s timer |
+| `media` | art + title + cava visualizer + controls | media playing (MPRIS) | media stops |
+| `notification` | brief notification preview | incoming `Notifications` | short timer |
+
+**Morph:** `implicitWidth`/`implicitHeight` reflect the active state so layout
+reserves space; `Behavior on width/height` with `Easing.OutBack` overshoot for goey
+spring. Content per state in a `Loader`/state-keyed visibility.
+
+**State precedence (highest → lowest):**
+`media` > `volume`/`brightness` >
+`notification` > `idle`. Implement as a computed `islandState` that picks the
+highest-priority active source, not a free-for-all of timers stomping each other.
+
+> Existing `IslandContent.qml` (prior session) has `idle` = *invisible* and triggers
+> volume off `GlobalStates.osdVolumeOpen`. **Both must change** in Phase 3: idle =
+> minimal clock; trigger off the `Audio` value (the flag flickers during scroll — see
+> CLAUDE.md). Treat the existing file as a sketch, not the design.
+
+### 2.3 IslandRight — `modules/ii/island/IslandRight.qml`
+Left→right: Resources (CPU/RAM/SWAP via `ResourceUsage`) · clock · battery · system
+tray · wifi/bt. Left-click → toggle `GlobalStates.sidebarRightOpen`. Keep ONLY the
+performance toggle from `UtilButtons` (user removed keyboard/brightness/darkmode).
+
+### 2.4 Bar removal
+In `panelFamilies/IllogicalImpulseFamily.qml`: comment the full-width `Bar`
+PanelLoader; add three island PanelLoaders. Keep ALL other panels (sidebars,
+overview, lock, notifications, dock, screenCorners, polkit, etc.).
+
+### 2.5 AS-BUILT details (Phases 1–5, user-approved)
+
+**Shared style — `IslandStyle.qml` (singleton, `pragma Singleton` + `Singleton{}`, no
+qmldir needed):** `margin 4`, `pillHeight 32`, `hPadding 10`, `radius full`,
+`pillColor "#0B0B0E"` (solid space-black — NOT translucent `colLayer0`), `textColor
+"#FFFFFF"`, `accent "#8AB4F8"`, `subtextColor`, `inactiveOpacity 0.45`. Every island
+uses it.
+
+**`IslandWorkspaces.qml` (left):** custom (NOT end-4 `Workspaces` — fixed slots can't do
+the reference's uniform-gap look). A `Row` of dots; the CURRENT workspace is a capsule
+the same height as the dots that EXPANDS and pushes neighbours apart (uniform gaps +
+fluid). Used=white, unused=faint, current=blue. Dispatch = standard `workspace N` /
+`workspace e±1` (end-4's `hl.dsp.focus` is INVALID in vanilla Hyprland).
+
+**`IslandPopup.qml` (right-island tooltips):** the bar's `StyledPopup` is hard-coded to
+the full-width bar → lands top-left on our island. So: a `PopupWindow` anchored BELOW
+the hovered item (`anchor.window/item/edges:Bottom/gravity:Bottom`). Loader + keep-alive
+timer (NOT always-mapped — an always-mapped PopupWindow triggered a Wayland popup
+protocol error that CRASHED qs). Content passed as a `Component` (instantiated fresh
+inside; reparenting a shared `Item` rendered empty boxes). Drive `shouldShow` from a
+`HoverHandler` (composes over MouseAreas; the battery's tiny target + a competing base
+MouseArea made plain MouseArea hover unreliable). Slide-in-from-right + fade.
+
+**`IslandNotch.qml` (THE STAR) — top-attached morphing notch:**
+- Hangs from top-center: square top corners flush with the screen edge, **rounded
+  bottom**, concave `RoundCorner` shoulders (left=`TopRight`, right=`TopLeft`,
+  `anchors.*Margin:-1` overlap) that blend it into the top edge. **Borderless** (a
+  border drew seam lines).
+- Window fixed at MAX size (`maxWidth+2*shoulder` × `maxHeight`); `mask: Region{item:
+  notch}` so input passes through everywhere but the notch and the inner notch
+  Rectangle animates size smoothly Qt-side (no janky per-frame compositor resize).
+- **States:** `idle` (180×36 empty) · `expanded` (fits the active content) · `open`
+  (480×300, click-toggled, NO content yet). `targetWidth`/`targetHeight`/`displaySource`
+  computed by precedence.
+- **Goey morph:** `Behavior on width/height { NumberAnimation { easing.bezierCurve:
+  [0.34,1.22,0.64,1,1,1] } }` (reference was 1.275 → too violent on the shrink).
+- **Constant 18px bottom radius** (≤ idle-height/2 so Qt never clamps) — animating it
+  read as corners "rounding in", rejected. NO radius Behavior.
+- **Reserves a 40px top strip** (`exclusionMode: Normal; exclusiveZone: 40`) so
+  maximized windows open below the islands.
+- **Sources & precedence** (computed `displaySource`): transient OSDs (volume /
+  brightness / notification, one `expandedSource` + shared hide-timer, auto-hide) win
+  over persistent **media**. Triggers use the service VALUE/signal, never the
+  flicker-prone OSD flags.
+- **Media:** shared cava `Process` at the `Scope` root → `visualizerPoints`, downsampled
+  to 22 center-anchored **equalizer bars**. Minimal UI = art · bars · play/pause (no
+  title). `mediaActive = isPlaying`. Album art downloaded to a stable local cache
+  (`Directories.coverArt/Qt.md5(url)`) and only reset on track change (see PROGRESS
+  gotcha — fixes the mid-song art vanish).
+
+---
+
+## 3. Quickshell / end-4 facts in use
+
+- **Quickshell 0.2.1.** Panels = `PanelWindow` (Wayland layer-shell) wrapped in
+  `Variants` for multi-monitor. Family = a `Scope` of `PanelLoader { component }` in
+  `IllogicalImpulseFamily.qml`.
+- **Panel module pattern:** folder `modules/ii/<name>/`, imported `qs.modules.ii.<name>`.
+  Study `modules/ii/bar/` (ActiveWindow, Workspaces, Resources, SysTray, Media,
+  BatteryIndicator, UtilButtons, ClockWidget) — most island content can be reused.
+- **Theme tokens (always use, never hardcode):** `Appearance.colors.colLayer0/1/2`,
+  `colOnLayer0/1/2`, `colLayer0Border`; `Appearance.rounding.windowRounding (18)` /
+  `.full`; `Appearance.sizes.baseBarHeight (40)`; `Appearance.font.pixelSize.*`;
+  `Appearance.animation.elementMoveFast.*`.
+- **Widgets** (`qs.modules.common.widgets`): `StyledText`, `MaterialSymbol`,
+  `RippleButton`, `Revealer`. Must import or "X is not a type".
+- **Services (reuse):** `Audio` (`Audio.sink.audio.volume/.muted`), `Brightness`
+  (`Brightness.getMonitorForScreen(screen)`), `MprisController`, `Notifications`
+  (`.unread/.silent`), `Battery`, `Network`, `BluetoothStatus`, `ResourceUsage`,
+  `TimerService`, `DateTime`.
+- **GlobalStates** (`GlobalStates.qml`): `sidebarLeftOpen`, `sidebarRightOpen`,
+  `osdVolumeOpen` (⚠ flickers on scroll — don't trigger notch from it), `overviewOpen`.
+- **Hot reload** on `.qml` save; QML errors show a red panel with `file:line`.
+
+---
+
+## 4. Agent bridge (REMOVED)
+
+This project previously carried a Claude Code agent-monitor feature: a Unix-socket
+bridge (`bridge/`) fed by Claude Code hooks, a notch `agent` surface with live session
+status, and a blocking Allow/Deny permission round-trip. It has been fully removed
+(bridge scripts, `AgentService.qml`, the notch's agent surface/spinner, the standalone
+agent-island dashboard app, and the "Claude Code Here" context-menu entry). Do not
+rebuild it unless explicitly asked.
+
+---
+
+## 5. Key decisions & rationale
+
+- **Morph via state-driven size + `Behavior`, not a GTK-Stack size-interpolate port.**
+  Qt animates property changes natively; cleaner, no tick loop, exact-curve control.
+- **Trigger volume/brightness from the *service value*, not `osdVolumeOpen`.** The flag
+  flickers during scroll (CLAUDE.md); value changes are the real signal.
+- **Split the reference bar into two floating islands.** Hyprfabricated keeps a
+  full-width bar + decorative notch corners; our look is three independent islands
+  with wallpaper gaps — a deliberate structural divergence.
+- **Multi-monitor via `Variants` on every island.** Hyprfabricated renders the notch
+  on one output only; `Variants { model: Quickshell.screens }` is our headline
+  reliability win.
+- **`islandState` is computed by precedence**, so higher-priority sources (dictation)
+  can't be stomped by a volume auto-hide timer.
+
+---
+
+## 3. REFERENCE TECHNIQUE NOTES — expansion features (Hyprfabricated)
+
+Technique-level extract from `~/Projects/island-reference/hyprfabricated/` for the
+ROADMAP A–H expansion. We translate to Quickshell — commands/services below are
+the reusable facts.
+
+**Dashboard tabs** (`modules/dashboard.py`, `widgets.py`, `kanban.py`): a
+`Gtk.Stack` + `StackSwitcher`, slide-left-right 500ms; tabs widgets/pins/kanban/
+wallpapers/mixer (we keep **widgets/kanban/coming-soon** only). Ctrl+Tab /
+Ctrl+Shift+Tab switch. Widgets tab panes: media (MPRIS), calendar (locale +
+datetime, refresh at midnight), notification history, quick-toggles 2×2
+(Network/BT/NightMode/Caffeine), volume+mic sliders (Audio), system-profile
+selector (`powerprofilesctl list/get/set`), live stats (psutil 1s; GPU `nvtop -s`).
+Kanban: 3 cols + DnD (`Gtk.DragAction.MOVE`), JSON at `~/.kanban.json`, inline
+editor (Shift+Enter newline, Return save).
+
+**Power** (`modules/power.py`): Lock `loginctl lock-session`; Suspend
+`systemctl suspend`; Logout `loginctl terminate-user ""`; Reboot `systemctl
+reboot`; Poweroff `systemctl poweroff`. Buttons Tab-navigable, Return/Space fire.
+
+**Capture** (`modules/tools.py` + `scripts/screenshot.sh`): screenshots via
+`hyprshot -z -s -m {output|region|window} -o DIR -f FILE`; clipboard `wl-copy`;
+mockup via ImageMagick `magick`. Record: `gpu-screen-recorder -w screen -ac opus
+-cr full -a default_output -f 60 -o FILE`; state `pgrep -f gpu-screen-recorder`;
+stop = SIGINT. Save `$XDG_PICTURES_DIR/Screenshots`, `$XDG_VIDEOS_DIR/Recordings`.
+(We may substitute `grim`+`slurp`/`wf-recorder` if hyprshot/gpu-screen-recorder
+absent — detect at build.)
+
+**Launcher** (`modules/launcher.py`): apps from `get_desktop_applications()`
+(.desktop), casefold substring on display+name+generic; lazy `idle_add`; arrows
+move, Return `app.launch()`, Esc close, auto-scroll to selection. Prefixes
+`=`/`;`/`:w`/`:d`/`:p`. (Quickshell equiv: `DesktopEntries` service.)
+
+**Overview** (`modules/overview.py`): Hyprland IPC `j/monitors` + `j/clients`
+(JSON); per client address/initialClass/title/workspace/at/size; window button
+icon via DesktopApp/IconResolver; SCALE 0.1 in `Gtk.Fixed`. Left-click
+`focuswindow address:`, right-click `closewindow address:`, DnD →
+`movetoworkspacesilent {wsid},address:{addr}`; rebuild on openwindow/closewindow/
+movewindow. (Quickshell equiv: `Hyprland` service `workspaces`/`toplevels` +
+`Hyprland.dispatch`.)
+
+**Weather** (`modules/weather.py`): location via `https://ipinfo.io/json`, data
+`https://wttr.in/{loc}?format=%c+%t`; poll 600s; threaded fetch; cloud-off icon on
+failure. (We force metric/°C with `&m`.)
+
+**Network** (`modules/metrics.py` NetworkApplet): `psutil.net_io_counters()`
+delta / elapsed, poll 1000ms; format B/s · KB/s · MB/s; Revealer shows speed on
+hover; wifi strength icon. (Quickshell equiv: read `/proc/net/dev`.)
+
+See ROADMAP.md for the phased build plan (A–H) that consumes these.
+
+---
+
+## 4. OPEN-STATE SURFACE HOST (expansion A–H, as-built)
+
+The notch `open` state is a **named-surface host** (mirrors the reference's
+`notch.stack` + `open_notch(name)`).
+
+- **`Island` singleton** (`modules/ii/island/Island.qml`): `property string
+  openSurface` (`"" | dashboard | power | tools | launcher | overview`) +
+  `open()/close()/toggle()`. Side-island pills (separate PanelWindows) call it to
+  drive the centre notch.
+- **`IslandNotch`**: `islandState = openSurface!=="" ? "open" : (transient OSD ?
+  "expanded" : "idle")`. Per-surface sizes in `surfaceSizes`; window sized to the
+  widest (`maxWidth 1100 × maxHeight 400`), notch masked so only its body is
+  interactive. Open content = a `FocusScope` "surfaceHost" with a click-absorber
+  MouseArea + a `Loader` switching `sourceComponent` on `openSurface`
+  (`Component { DashboardSurface{} }` etc.). `keyboardFocus: OnDemand` while open
+  → Esc closes; transient OSDs gated to `expanded` so they don't overlap surfaces.
+- **Surfaces** (all `FocusScope`, same dir, auto-resolved by filename):
+  - `DashboardSurface` → tab bar (Widgets/Kanban/Coming-soon) hosting `WidgetsPane`
+    (`WidgetCalendar` + inline toggles/sliders/media/notifs/mode/stat-bars) and
+    `KanbanPane` (+ `KanbanStore` singleton, JSON at `<state>/user/kanban.json`).
+  - `PowerSurface`, `ToolsSurface`, `LauncherSurface`, `OverviewSurface`.
+- **Close paths:** Esc (keyboard focus), re-clicking the originating side pill
+  (`Island.toggle`), or taking an action. Clicks inside an open surface are
+  absorbed (no accidental close); the notch background only OPENS (dashboard) from
+  idle.
+- **Services reused:** Audio (sink+source), Network, BluetoothStatus +
+  `Bluetooth.defaultAdapter`, Hyprsunset, Idle (caffeine), ResourceUsage,
+  Notifications, DateTime, MprisController, AppSearch/DesktopEntries, HyprlandData
+  + `Hyprland.dispatch`. Weather/network pills self-fetch (wttr.in / /proc/net/dev).
+
+See ROADMAP.md for the phase→task breakdown and PROGRESS.md for gotchas.
+
+---
+
+## 5. AGENT BRIDGE (REMOVED)
+
+This section previously documented a Claude Code agent bridge: `bridge/` (hook
+client + tests), `quickshell/services/AgentService.qml` (Unix-socket listener),
+and a blocking Allow/Deny permission protocol. The feature has been removed in
+full — bridge scripts, `AgentService.qml`, and the notch's agent UI are gone, and
+`install.sh --agent-hooks` no longer exists. Do not rebuild it unless explicitly
+asked.
+
+---
+
+## 6. DESKTOP WIDGETS — todo card + focus timer (as-built)
+
+First piece of the macOS conversion. Design was drafted and approved visually
+before any code: material weight, card anatomy and the start flow were compared
+against the real wallpaper rather than decided in the abstract.
+
+### 6.1 Why a separate layer surface, not `Background.qml`
+
+`Background.qml` already runs a `WidgetCanvas` on `WlrLayer.Bottom` and
+`AbstractBackgroundWidget` already gives free-drag, persisted position and
+wallpaper parallax. Putting the card there would have cost zero new surfaces,
+and it was the original plan. Two things ruled it out:
+
+- **Blur.** Hyprland runs blur with `xray` on, so a `blur` layerrule against our
+  own namespace frosts the *wallpaper* on the GPU for free. Inside the background
+  window there is nothing behind us to blur — we would have had to decode the
+  wallpaper a second time into a Qt `MultiEffect`, i.e. a second full-resolution
+  texture, purely for looks.
+- **Keyboard.** `Background.qml` never takes keyboard focus, so the "Add a task"
+  field could not be typed into. A separate surface sets
+  `WlrKeyboardFocus.OnDemand` only while a field is focused, and drops back to
+  `None` the moment it isn't, so it never steals keys from an app.
+
+Cost is one surface on one monitor. `mask: Region { item: card }` keeps the rest
+of the desktop clickable straight through.
+
+### 6.2 Layer rules at runtime, not in `~/.config/hypr`
+
+This project may not edit the user's Hyprland config. `DesktopWidgets.qml` and
+`FocusOverlay.qml` each push their own `layerrule blur` + `ignorealpha` via
+`hyprctl --batch` on completion. Idempotent, so re-applying on every reload is
+harmless, and losing them only costs the frost, never function.
+
+### 6.3 Card anatomy
+
+macOS Reminders proportions, Material You colour. 16px content margin and 11px
+minimum type are Apple's published widget numbers; corner radii are concentric
+(inner = outer − padding), which `StyledOverlayWidget` already expresses as
+`contentRadius`. Count-led header, accent list name, hairline rule, hollow 20px
+circle checkboxes that fill on completion, 40px row rhythm, single-line elide so
+card height stays predictable, start button revealed on hover only.
+
+Material is **10% `colPrimary` over compositor blur**. Drafted at 5 / 10 / 62
+percent against a wallpaper with both near-black and blown-out regions; 5% could
+not hold text over the bright one, 62% stopped reading as glass.
+
+### 6.4 Timer is wall-clock, like `TimerService`
+
+`Persistent.states.timer.focus` stores a unix `start`, shifted forward on resume
+to absorb pauses, rather than counting ticks. Survives suspend, and survives a
+shell reload: Quickshell rebuilds the singleton but Persistent still holds the
+timestamp, so a running session picks up where it was.
+
+Maximised is a take-over on `WlrLayer.Overlay` so it covers fullscreen apps.
+Minimised is a masked pill, also Overlay. Clicking the backdrop minimises rather
+than cancels — losing a running session to a stray click would be hostile.
+
+### 6.5 Gotchas hit
+
+- **Binding loop → zero size.** `root.implicitHeight` ← `card.implicitHeight` ←
+  `column.implicitHeight` while the column was `anchors.fill`-ed back to the
+  card puts height on both sides of one binding. QML resolves that to zero and
+  the widget renders nothing, silently — no error, the surface still exists in
+  `hyprctl layers`. Fixed by anchoring the column left/right/top only, so its
+  height stays its own `implicitHeight`. Same class of bug in `TodoRow`, which
+  read `parent.width` inside a layout; use `Layout.fillWidth` instead.
+- **`touch` does not trigger Quickshell's reloader.** Only real content changes
+  do. Cost some confusing minutes reading stale log output.
+- **`Todo.qml` had no `watchChanges`.** With two views on one list (sidebar and
+  desktop card) they drifted apart until the next reload. Now watched.
+- **Diagnosing an invisible widget:** raise it to `WlrLayer.Top` briefly. If it
+  is still invisible it is a sizing bug, not occlusion. Note the temporary change
+  applies to every running instance, including the host shell, which will then
+  paint over a nested session and look like a double render.
+- **Capture the nested session natively** with `WAYLAND_DISPLAY=wayland-2 grim`.
+  Screenshotting the nested window's rectangle on the host catches host overlays
+  sitting on top of it.
+
+---
+
+## 7. MENUBAR + DOCK MAGNIFICATION (as-built)
+
+### 7.1 Menubar replaces IslandLeft / IslandRight
+
+`modules/ii/menubar/Menubar.qml`. Full width, no island, no outline. The only
+thing between the text and the wallpaper is a scrim — opaque at the very top,
+gone by 46px — so text always has ground under it but there is never an edge.
+Drafted against three treatments over the worst part of the wallpaper: a bare
+text-shadow could not hold the right-hand cluster over the sun shaft, and a glass
+strip reintroduced exactly the bottom edge the design was meant to remove.
+
+Left is logo + focused app name + workspaces, deliberately NOT File/Edit/View.
+macOS can draw those because every app publishes its menu to the system; on
+Wayland nothing covers Electron, so Zen, Cursor, Warp and Discord — most of what
+runs here — would leave it empty.
+
+The notch keeps its own surface and is untouched. `islandReserve` (inside
+IslandNotch) still reserves the top strip, so the menubar claims no exclusive
+zone of its own — claiming it twice would push every window down twice.
+
+**This halved idle CPU.** 25.9% -> 13.9%, busy render threads 4 -> 1, main thread
+9.8% -> 5.9%. IslandLeft and IslandRight together were ~11% of a core at rest,
+with nothing changing on screen. Retiring them did what a day of config-flag
+bisecting could not.
+
+### 7.2 Dock, rebuilt from scratch
+
+`modules/ii/macDock/MacDock.qml`. The first attempt patched magnification into
+the existing dock and worked, but the old dock's shape (pin button, hover-to-
+reveal, window previews) is not the shape of a macOS dock, so it was rebuilt.
+The original is still there, gated behind `dock.macStyleDock`.
+
+42px icons on the bottom baseline, `transformOrigin: Item.Bottom` so they rise
+out of the container rather than swelling from their centres. 4px running dot
+below each running app, hairline separator before the trailing group, name label
+above on hover. Reserves its own strip via `exclusiveZone` (container height plus
+its gap) so maximised windows rest above it — deliberately NOT including the
+magnification headroom, so growing icons rise into free space instead of pushing
+every window down.
+
+Magnification is a raised cosine — 1 under the cursor, 0 at the edge of the
+falloff, flat tangent at both ends. A squared cosine peaks too sharply and reads
+as a snap. Peak 1.28 / spread 2.9, tuned live against the draft.
+
+**Item width is fixed; only `scale` changes.** Growing width as well made
+neighbours slide apart like the real dock, but it fed the result back into its
+own input — widths move centres, centres decide widths. The easing Behaviour did
+not damp that oscillation, it only gave it a nicer curve, and it read as visible
+jitter. Scale alone is stable and at this peak the icons stay clear anyway.
+
+Two more things that bit:
+- The window **clips its own contents**. Anything not budgeted into
+  `implicitHeight` is cut off, which is what cropped the name label until the
+  height accounted for label + magnification headroom.
+- A full-width 1px "inset highlight" across the top of the container reads as a
+  stray line where it crosses inside the rounded corners. Removed.
+
+### 7.3 hyprctl on a Lua-configured Hyprland
+
+Worth writing down because it cost real time twice. This machine configures
+Hyprland with the Lua parser, where `hyprctl keyword` and `hyprctl dispatch` do
+not work — the former answers "keyword can't work with non-legacy parsers", the
+latter tries to parse arguments as Lua. Use `hyprctl eval` with the `hl` API:
+`hl.layer_rule({ match = { namespace = "..." }, blur = true })`,
+`hl.dsp.cursor.move({x=..., y=...})`. Anything in this repo shelling out to
+`hyprctl keyword` (e.g. GameMode.qml) is silently a no-op here.
+
+### 7.4 Menubar items do real work; Control Centre
+
+Every menubar item has a distinct action instead of all opening the same
+sidebar: left click is the primary action, right click opens the full
+application for it, scroll adjusts where that makes sense.
+
+- volume: scroll changes it, click mutes, right click opens the mixer
+- wifi / bluetooth: click toggles the radio, right click opens its settings
+- clock: click drops a calendar
+- Control Centre (`ControlCentre.qml`): power-mode chips, live CPU / memory /
+  swap / GPU / battery, volume and brightness sliders, Wi-Fi and Bluetooth tiles
+
+GPU is labelled **GPU clock**, not load. Intel integrated graphics expose
+`gt_act_freq_mhz` and no busy-percent at all, so anything called "GPU load" here
+would be a guess dressed as a measurement. `ResourceUsage` discovers the card
+directory once by globbing — the index varies (card1 here, card0 elsewhere).
+
+Gotchas:
+- **`FileView.reload()` is asynchronous.** Calling `text()` on the next line
+  returns the *previous* contents, or empty on the first tick. That is why CPU
+  temperature and GPU clock read as zero. `blockLoading: true` makes the
+  /proc and sysfs reads synchronous, which is what this polling loop wants.
+- **`Hyprland` needs `import Quickshell.Hyprland`.** Without it the reference
+  fails silently at runtime as a ReferenceError in the log, and every binding
+  that depended on it fell back — which is why the menubar always said "Desktop"
+  instead of the focused app.
+- **Do not derive a `ShellScreen` from `QsWindow` inside a popup.** It resolves
+  to the popup's own window, whose screen is a different object, and
+  `Brightness.getMonitorForScreen` matches by identity — so it silently finds
+  nothing. Pass the screen in from the panel that owns it.
+
+### 7.5 Why CPU read 0%
+
+Two causes stacked, both silent.
+
+`ResourceUsage` is a QML singleton, and QML singletons are **lazy** — nothing
+constructs one until something references it. `IslandRight` used to hold CPU
+rings, which kept it alive and polling from startup. Retiring the islands removed
+that reference, so the service now only wakes when something like Control Centre
+opens. (Part of the 25.9% -> 13.9% idle CPU win is exactly this: a poller that had
+been running forever stopped.)
+
+On top of that, a CPU figure is a **delta** — the first sample can only seed a
+baseline and must read 0%. Combined with lazy construction, that first 0% is
+precisely what a user sees the moment the panel opens. Fixed by scheduling the
+second sample 400ms after the first and only then settling to the configured
+interval, so a real figure appears almost immediately.
+
+Verify readings against the system, not against the code: `/proc/stat` deltas said
+9.6% while the panel said 0%, which is what proved the panel wrong.
+
+---
+
+## 8. TRAFFIC LIGHTS (config only, outside this repo)
+
+No code in this repo. Everything lives in the user's config, so it is recorded
+here rather than committed. Backups of every file touched were taken first.
+
+Files changed:
+- `~/.config/gtk-3.0/settings.ini`, `~/.config/gtk-4.0/settings.ini` (created) —
+  `gtk-decoration-layout=close,minimize,maximize:`. The trailing colon is the
+  left/right split, so everything before it sits left and nothing sits right.
+- `gsettings org.gnome.desktop.wm.preferences button-layout` — set to match,
+  because apps that read gsettings ignore settings.ini.
+- `~/.config/kdeglobals` — `[org.kde.kdecoration2] ButtonsOnLeft=XIA`
+  (X close, I minimize, A maximize) for server-decorated Qt apps.
+- `~/.config/matugen/templates/gtk-{3,4}.0/gtk.css` — the traffic-light CSS.
+
+**The CSS must go in the Matugen TEMPLATE.** `~/.config/gtk-4.0/gtk.css` is
+generated output; anything written there survives only until the next wallpaper
+change. Verified by re-running matugen five times during development — the rules
+came through every time.
+
+Colours are hardcoded `#ff5f57 / #febc2e / #28c840` rather than themed: a traffic
+light that is not red/amber/green is not a traffic light.
+
+### Gotchas
+
+- **`all: unset` first.** libadwaita sizes and paints these buttons from several
+  rules at once. Setting `padding` and `min-*` alone left them as ovals AND let
+  its own background bleed through the amber one, which came out muddy olive.
+- **GTK CSS has no `max-height`,** and the button stretches to the headerbar's
+  height, so `min-height` cannot make a circle. Vertical `margin` is the only
+  lever — `margin: 11px 5px` lands a 13px circle on a standard libadwaita
+  headerbar. It is headerbar-height dependent, so it is a tuning value, not a law.
+- **Hovering one reveals all three glyphs** via `windowcontrols:hover > button
+  image`, which is the single most recognisable detail of the real thing.
+
+### Coverage, as actually observed
+
+- Nautilus / GTK4 / libadwaita: full traffic lights, correct colours, hover
+  glyphs, backdrop greying. Works.
+- **Zen: done via `userChrome.css`** (see 8.1). Coloured circles work. Hover
+  glyphs do not — GTK apps get them, Zen does not.
+- **Cursor / VS Code: not possible.** `window.titleBarStyle: "native"` was tried
+  and is WRONG for this compositor — native hands decoration to the compositor,
+  and Hyprland draws no titlebars, so Chromium falls back to drawing its own
+  controls on the RIGHT, ignoring the GTK layout entirely. That is worse than the
+  default. The default custom title bar also draws its own controls on the right
+  and does not read `gtk-decoration-layout`. Either way GTK CSS never applies.
+  The only remaining route is injecting CSS into the workbench (the Custom CSS
+  extension, or patching `workbench.html`), which triggers a permanent "your
+  installation appears corrupt" banner and breaks on every update. Declined.
+- kitty, Warp, Discord: unchanged, as designed. They draw no titlebar (or their
+  own), and covering them needs the `hyprbars` plugin, which was declined for the
+  rebuild-on-every-Hyprland-update cost.
+
+Backups of every file touched outside this repo live in
+`~/.local/share/traffic-lights-backup/`.
+
+### 8.1 Zen, via userChrome.css
+
+GTK CSS cannot reach Firefox-family window controls: they are drawn inside the
+browser's own chrome. Zen needs its own stylesheet.
+
+Profile is `~/.config/zen/ivq0hep3.Default (release)/` — note **`~/.config/zen`,
+not `~/.zen`**, which is where the first search looked and found nothing. The
+live profile is the one holding `.parentlock`.
+
+- `chrome/userChrome.css` — the traffic lights (new file; the existing
+  `zen-themes.css` was left alone).
+- `user.js` — `toolkit.legacyUserProfileCustomizations.stylesheets = true`,
+  appended to the existing VA-API tuning rather than replacing it. Using
+  `user.js` rather than `prefs.js` means it is reapplied at every startup.
+
+Both are read **only at startup**, so Zen must be restarted to pick up changes.
+
+Three things had to be right, and each failed silently on its own:
+
+1. **Classes, not ids.** Modern Firefox moved these from `id="titlebar-close"` to
+   `class="titlebar-button titlebar-close"`. The id selectors matched nothing —
+   the buttons took the shape rules and stayed grey, which looked like a colour
+   problem but was a selector problem.
+2. **Specificity, not just `!important`.** Zen's own chrome sets these
+   backgrounds `!important` too, and an `!important` tie is broken by
+   specificity. The rules are deliberately over-qualified
+   (`:root .titlebar-buttonbox-container .titlebar-buttonbox ...`) to outweigh it.
+3. **`background` shorthand, not `background-color`** — a later shorthand in
+   Zen's sheet would otherwise wipe a bare `background-color`.
+
+**Alignment:** pinning `height`/`max-height` on the buttons removes their
+natural vertical centring — they ride high and spill past the window's rounded
+top-left corner. `.titlebar-buttonbox-container` and `.titlebar-buttonbox` need
+explicit `align-self`/`align-items: center`. Do NOT correct this with a top
+margin; it breaks the moment the toolbar height changes.
+
+**Known limitation: no hover glyphs in Zen.** Firefox paints them as
+`background-image: -moz-symbolic-icon(...)` on the icon child, and neither
+opacity nor explicit `background-size` brought them back. Verified with the
+cursor genuinely on the button (its "Minimize" tooltip fired). GTK apps do get
+hover glyphs; Zen gets colour only.
+
+### 6.6 Resizing
+
+Right edge drags width, bottom edge drags the task-list height, bottom-right
+corner does both. Bounds come from `background.widgets.todo` (`minWidth`,
+`maxWidth`); the list clamps at 40px so it can never collapse to nothing.
+
+**Vertical resize changes the LIST height, not the card's.** The header,
+Completed section and add-row keep their natural size and the card grows by
+exactly what was dragged. Resizing the card itself would mean anchoring the
+content column top *and* bottom, which puts height on both sides of one binding
+— the same loop that rendered the widget invisible the first time (§6.5).
+
+The task rows sit in a clipped `Flickable`, so a short height means "show fewer
+rows and scroll" rather than squashing every row. A gradient at the cut-off edge
+signals there is more below.
+
+Grip deltas are measured in **global** coordinates. A grip's local mouse x/y
+shift as the card resizes underneath it, which feeds the resize back into its own
+input and makes the card judder — the same trap the dock magnification fell into
+(§7.2).
+
+The right-edge grip is 10px and the card's content padding is 16px, so the grip
+sits inside the padding and never steals clicks from a row's ▶ button.
+
+### 6.7 Settings menu, empty state, and a crash worth remembering
+
+**z-order only sorts among SIBLINGS.** The first version put the click-away
+catcher as a sibling of the card at `z: 90` and the menu as a *child* of the
+card. A child cannot rise above its parent's sibling whatever its own z says, so
+the catcher swallowed every click and not one menu item ever fired. Both are now
+reparented to the surface. Related: the window's `mask` limited input to the
+card, so anything the menu drew outside those bounds was dead too — the mask
+opens up to the whole surface while the menu is showing.
+
+Right-click the header strip for settings: material (translucent/solid + an
+opacity slider), show/hide completed, clear completed, clear all, reset size,
+reset position, hide widget. Destructive rows **arm on the first click and fire
+on the second** — a stray click can never wipe the list. The menu is a plain Item
+inside the widget's own layer surface, not a PopupWindow; the surface is already
+full-screen so a child at the click point is enough.
+
+Empty state now lives INSIDE the list area and centres. Sitting it after the list
+in the column parked it at the bottom of a tall card with a wall of dead space
+above — obvious the moment the widget became resizable, invisible before.
+
+**A list-typed property in a JsonAdapter JsonObject hard-crashes the shell.**
+`property list<int> durationPresets: [15, 25, 50]` serialises back out to
+config.json as `null`, and reading that null in on the NEXT launch kills the
+process about a second after "Configuration Loaded" — no QML error, no red reload
+panel, nothing in the log but `QEventLoop: Cannot be used without
+QCoreApplication` during teardown. `property var` did not help; the value is
+still written as null.
+
+Store list-shaped config as a **comma-separated string** and parse it defensively
+in QML. `list<string>` properties that already hold values (e.g. `dock.pinnedApps`)
+are fine — the failure is a list default that has never been written.
+
+Two things this cost that are worth internalising: the crash only appears on the
+*second* launch, so a single restart looks like success; and disabling the widget
+did not stop it, because the fault is in reading the config, not in rendering.
+
+### 6.8 Numbered list
+
+Tasks read as a numbered list at rest and swap the number for the checkbox on
+hover. A column of empty circles looks like a form waiting to be filled in; a
+numbered list looks like work already decided on. The number and the checkbox
+share one 20px slot and cross-fade, so nothing shifts sideways when the pointer
+arrives. Completed rows keep the tick rather than falling back to a number — a
+finished task has no queue position.
+
+### 6.9 The task that vanished
+
+Right-click on a row deleted it instantly — no confirm, no undo. Inherited from
+the sidebar widget, where it was merely undiscoverable. It became a **trap** the
+moment right-click started opening the settings menu everywhere else on the card:
+reaching for the menu on a row destroyed the task instead. A real task was lost
+this way before it was caught.
+
+Three changes:
+- Rows no longer accept right-click at all. Left-click opens the settings menu,
+  matching the header, so the gesture means one thing everywhere.
+- Deleting is now an explicit ✕ that appears on hover next to ▶.
+- **Every removal is undoable.** `deleteItem`, `clearCompleted` and `clearAll`
+  stash what they removed, and the card shows a `Deleted "…" · Undo` bar until
+  the next removal. Verified by deleting a task and restoring it.
+
+The lesson generalises: when a gesture changes meaning in one place, audit
+everywhere else that gesture is bound. And anything that can destroy user data
+needs an undo before it ships, not after someone loses something.
+
+Also: the duration picker had no way out. Escape was wired but depends on the
+surface holding keyboard focus, and the backdrop swallowed clicks rather than
+cancelling. It now has a back button, and clicking off it cancels.

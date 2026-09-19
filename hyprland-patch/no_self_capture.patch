@@ -1,0 +1,1467 @@
+diff --git a/src/config/lua/bindings/LuaBindingsConfigRules.cpp b/src/config/lua/bindings/LuaBindingsConfigRules.cpp
+index 8095b170..c56c5641 100644
+--- a/src/config/lua/bindings/LuaBindingsConfigRules.cpp
++++ b/src/config/lua/bindings/LuaBindingsConfigRules.cpp
+@@ -190,6 +190,7 @@ namespace {
+         {"order", []() -> ILuaConfigValue* { return new CLuaConfigInt(0); }, LE::LAYER_RULE_EFFECT_ORDER},
+         {"above_lock", []() -> ILuaConfigValue* { return new CLuaConfigInt(0, 0, 2); }, LE::LAYER_RULE_EFFECT_ABOVE_LOCK},
+         {"no_screen_share", []() -> ILuaConfigValue* { return new CLuaConfigBool(false); }, LE::LAYER_RULE_EFFECT_NO_SCREEN_SHARE},
++        {"no_self_capture", []() -> ILuaConfigValue* { return new CLuaConfigBool(false); }, LE::LAYER_RULE_EFFECT_NO_SELF_CAPTURE},
+     };
+ 
+     static_assert(sizeof(LAYER_RULE_EFFECT_DESCS) / sizeof(SLayerRuleEffectDesc) == LE::LAYER_RULE_EFFECT_LAST_STATIC - 1);
+diff --git a/src/debug/log/Logger.cpp b/src/debug/log/Logger.cpp
+index 58a128f8..f7d9a688 100644
+--- a/src/debug/log/Logger.cpp
++++ b/src/debug/log/Logger.cpp
+@@ -5,6 +5,8 @@
+ 
+ #include "../../config/ConfigValue.hpp"
+ 
++#include <fstream>
++
+ using namespace Log;
+ 
+ CLogger::CLogger() : m_isTrace(Env::isTrace()) {
+@@ -21,6 +23,18 @@ void CLogger::log(Hyprutils::CLI::eLogLevel level, const std::string_view& str)
+     if (SRollingLogFollow::get().isRunning())
+         SRollingLogFollow::get().addLog(str);
+ 
++    // CLAUDE/local: debugging the self-capture resolution-downscale bug.
++    // The regular file sink (m_logger, below) buffers internally via
++    // std::ofstream and never explicitly flushes -- and in a real login
++    // session stdout (which DOES flush every line) is redirected to
++    // /dev/null by the session launcher, so there's no way to see these
++    // lines in anything close to real time otherwise. Dedicated,
++    // unbuffered sink just for this investigation's tagged lines.
++    if (str.find("[selfCap") != std::string_view::npos) {
++        static std::ofstream selfCapDbgFile("/tmp/selfcap_debug.log", std::ios::app);
++        selfCapDbgFile << str << std::endl;
++    }
++
+     m_logger.log(level, str);
+ }
+ 
+diff --git a/src/desktop/rule/layerRule/LayerRule.cpp b/src/desktop/rule/layerRule/LayerRule.cpp
+index 11cdd702..065b8d03 100644
+--- a/src/desktop/rule/layerRule/LayerRule.cpp
++++ b/src/desktop/rule/layerRule/LayerRule.cpp
+@@ -61,7 +61,8 @@ static std::expected<LayerRuleEffectValue, std::string> parseLayerRuleEffect(CLa
+         case LAYER_RULE_EFFECT_BLUR_POPUPS:
+         case LAYER_RULE_EFFECT_DIM_AROUND:
+         case LAYER_RULE_EFFECT_XRAY:
+-        case LAYER_RULE_EFFECT_NO_SCREEN_SHARE: return truthy(raw);
++        case LAYER_RULE_EFFECT_NO_SCREEN_SHARE:
++        case LAYER_RULE_EFFECT_NO_SELF_CAPTURE: return truthy(raw);
+ 
+         case LAYER_RULE_EFFECT_ORDER: {
+             auto parsed = parseInt(EFFECT_NAME, raw);
+diff --git a/src/desktop/rule/layerRule/LayerRuleApplicator.cpp b/src/desktop/rule/layerRule/LayerRuleApplicator.cpp
+index 79ee80ae..6a18926e 100644
+--- a/src/desktop/rule/layerRule/LayerRuleApplicator.cpp
++++ b/src/desktop/rule/layerRule/LayerRuleApplicator.cpp
+@@ -31,7 +31,7 @@ CLayerRuleApplicator::CLayerRuleApplicator(PHLLS ls) : m_ls(ls) {
+ 
+ void CLayerRuleApplicator::resetProps(std::underlying_type_t<eRuleProperty> props, Types::eOverridePriority prio) {
+     std::apply([&](auto&... prop) { (resetRuleProp(prop, props, prio), ...); },
+-               std::forward_as_tuple(m_noanim, m_blur, m_blurPopups, m_dimAround, m_xray, m_noScreenShare, m_order, m_aboveLock, m_ignoreAlpha, m_animationStyle));
++               std::forward_as_tuple(m_noanim, m_blur, m_blurPopups, m_dimAround, m_xray, m_noScreenShare, m_noSelfCapture, m_order, m_aboveLock, m_ignoreAlpha, m_animationStyle));
+ 
+     if (prio == Types::PRIORITY_WINDOW_RULE)
+         std::erase_if(m_otherProps.props, [props](const auto& el) { return !el.second || el.second->propMask & props; });
+@@ -100,6 +100,11 @@ void CLayerRuleApplicator::applyDynamicRule(const SP<CLayerRule>& rule) {
+                 m_noScreenShare.second |= rule->getPropertiesMask();
+                 break;
+             }
++            case LAYER_RULE_EFFECT_NO_SELF_CAPTURE: {
++                m_noSelfCapture.first.set(std::get<bool>(value), Types::PRIORITY_WINDOW_RULE);
++                m_noSelfCapture.second |= rule->getPropertiesMask();
++                break;
++            }
+             case LAYER_RULE_EFFECT_ORDER: {
+                 m_order.first.set(std::get<int64_t>(value), Types::PRIORITY_WINDOW_RULE);
+                 m_order.second |= rule->getPropertiesMask();
+diff --git a/src/desktop/rule/layerRule/LayerRuleApplicator.hpp b/src/desktop/rule/layerRule/LayerRuleApplicator.hpp
+index b208aac6..6322d3ca 100644
+--- a/src/desktop/rule/layerRule/LayerRuleApplicator.hpp
++++ b/src/desktop/rule/layerRule/LayerRuleApplicator.hpp
+@@ -53,6 +53,7 @@ namespace Desktop::Rule {
+         DEFINE_PROP(bool, dimAround, false)
+         DEFINE_PROP(bool, xray, false)
+         DEFINE_PROP(bool, noScreenShare, false)
++        DEFINE_PROP(bool, noSelfCapture, false)
+ 
+         DEFINE_PROP(Config::INTEGER, order, 0)
+         DEFINE_PROP(Config::INTEGER, aboveLock, 0)
+diff --git a/src/desktop/rule/layerRule/LayerRuleEffectContainer.cpp b/src/desktop/rule/layerRule/LayerRuleEffectContainer.cpp
+index 17394239..0f606bea 100644
+--- a/src/desktop/rule/layerRule/LayerRuleEffectContainer.cpp
++++ b/src/desktop/rule/layerRule/LayerRuleEffectContainer.cpp
+@@ -21,12 +21,13 @@ static const std::vector<std::string> EFFECT_STRINGS = {
+     "order",                  //
+     "above_lock",             //
+     "no_screen_share",        //
++    "no_self_capture",        //
+     "__internal_last_static", //
+ };
+ 
+ // This is here so that if we change the rules, we get reminded to update
+ // the strings.
+-static_assert(LAYER_RULE_EFFECT_LAST_STATIC == 11);
++static_assert(LAYER_RULE_EFFECT_LAST_STATIC == 12);
+ 
+ CLayerRuleEffectContainer::CLayerRuleEffectContainer() : IEffectContainer<eLayerRuleEffect>(std::vector<std::string>{EFFECT_STRINGS}) {
+     ;
+diff --git a/src/desktop/rule/layerRule/LayerRuleEffectContainer.hpp b/src/desktop/rule/layerRule/LayerRuleEffectContainer.hpp
+index e3b3d26c..12e47b2c 100644
+--- a/src/desktop/rule/layerRule/LayerRuleEffectContainer.hpp
++++ b/src/desktop/rule/layerRule/LayerRuleEffectContainer.hpp
+@@ -19,6 +19,7 @@ namespace Desktop::Rule {
+         LAYER_RULE_EFFECT_ORDER,
+         LAYER_RULE_EFFECT_ABOVE_LOCK,
+         LAYER_RULE_EFFECT_NO_SCREEN_SHARE,
++        LAYER_RULE_EFFECT_NO_SELF_CAPTURE,
+ 
+         LAYER_RULE_EFFECT_LAST_STATIC,
+     };
+diff --git a/src/desktop/view/LayerSurface.hpp b/src/desktop/view/LayerSurface.hpp
+index ce5791c6..acf737be 100644
+--- a/src/desktop/view/LayerSurface.hpp
++++ b/src/desktop/view/LayerSurface.hpp
+@@ -7,6 +7,7 @@
+ #include "../rule/layerRule/LayerRuleApplicator.hpp"
+ #include "../../helpers/AnimatedVariable.hpp"
+ #include "../../render/Framebuffer.hpp"
++#include "../../helpers/time/Time.hpp"
+ #include "types/GeometricMovableAnimated.hpp"
+ #include "types/AlphaModifiable.hpp"
+ #include "animationControllers/LayerSurfaceAnimationController.hpp"
+@@ -57,6 +58,50 @@ namespace Desktop::View {
+ 
+         UP<Desktop::Rule::CLayerRuleApplicator> m_ruleApplicator;
+ 
++        // CLAUDE/local: no_self_capture. A once-per-real-frame snapshot of
++        // "what the monitor would look like without this layer", kept fresh
++        // by Renderer::makeSelfCaptureBackgroundFB and consumed by
++        // ScreenshareFrame's blit. m_hiddenForSelfCapture is set true ONLY
++        // while that snapshot is being rendered, so renderLayer can skip this
++        // layer without affecting the real on-screen frame.
++        bool                                    m_hiddenForSelfCapture = false;
++        SP<Render::IFramebuffer>                m_selfCaptureBackground;
++        // CLAUDE/local: no_self_capture perf, resolution downscale attempt
++        // 4, 2026-09-18. m_selfCaptureBackground (above) is the
++        // CONSUMER-FACING framebuffer — always allocated at full monitor
++        // resolution, so nothing downstream (ScreenshareFrame's blit, any
++        // future consumer) ever needs to know or care that a downscale is
++        // happening at all. This is the actual, smaller render target the
++        // scene gets rendered into; makeSelfCaptureBackgroundFB blits it
++        // up into m_selfCaptureBackground afterward. Confining the
++        // resolution trick entirely to these two members, with the
++        // downstream-facing object always monitor-sized, is deliberately
++        // narrower in scope than the two previous (reverted) attempts,
++        // which changed m_selfCaptureBackground's own size directly and
++        // needed ScreenshareFrame.cpp's blit math to compensate.
++        SP<Render::IFramebuffer>                m_selfCaptureScratch;
++        // Perf: throttled to the monitor's own refresh rate (see
++        // makeSelfCaptureBackgroundFB) instead of an assumed fixed rate — a
++        // full extra scene render every real frame is real GPU cost, and the
++        // right cap is whatever this display can actually show, not a guess.
++        Time::steady_tp                         m_lastSelfCaptureTime{};
++        // CLAUDE/local: no_self_capture perf, demand-resume bypass
++        // (2026-09-17). The damage-overlap check above only looks at damage
++        // since the LAST REAL FRAME (rotate()) — it says nothing about
++        // whether the world changed behind this layer during a stretch of
++        // frames where self-capture demand was absent entirely (see
++        // selfCaptureDemanded in Renderer.cpp), since this layer isn't even
++        // visited on those frames. Stamped on every frame this layer IS
++        // visited (regardless of whether a regen happens); Renderer.cpp
++        // compares the gap since the previous stamp against the real frame
++        // interval to detect "demand just resumed after being away for a
++        // while" and forces one damage-check-bypassing regen in that case —
++        // the same "always captures immediately" treatment already given to
++        // a never-yet-allocated snapshot, extended to a snapshot that's
++        // allocated but has been stale for an unknown, unbounded amount of
++        // real time.
++        Time::steady_tp                         m_lastSelfCaptureVisitTime{};
++
+         PHLLSREF                                m_self;
+ 
+         CLayerSurfaceAnimationController        m_animationController;
+diff --git a/src/managers/screenshare/ScreenshareFrame.cpp b/src/managers/screenshare/ScreenshareFrame.cpp
+index c74adcb9..5da0bc4b 100644
+--- a/src/managers/screenshare/ScreenshareFrame.cpp
++++ b/src/managers/screenshare/ScreenshareFrame.cpp
+@@ -7,6 +7,7 @@
+ #include "../../Compositor.hpp"
+ #include "../../render/Renderer.hpp"
+ #include "../../render/OpenGL.hpp"
++#include "../../render/gl/GLFramebuffer.hpp"
+ #include "../../output/Monitor.hpp"
+ #include "../../state/MonitorState.hpp"
+ #include "../../desktop/view/Window.hpp"
+@@ -17,6 +18,12 @@
+ #include "../../managers/fullscreen/FullscreenController.hpp"
+ #include <hyprutils/math/Region.hpp>
+ #include <hyprgraphics/egl/Egl.hpp>
++#include <algorithm>
++#include <cstdio>
++#include <filesystem>
++#include <set>
++#include <unordered_map>
++#include <vector>
+ 
+ using namespace Hyprgraphics::Egl;
+ using namespace Screenshare;
+@@ -177,6 +184,34 @@ void CScreenshareFrame::renderMonitor() {
+     if ((m_session->m_type != SHARE_MONITOR && m_session->m_type != SHARE_REGION) || done())
+         return;
+ 
++    // CLAUDE/local: per-call frame counter, 2026-09-18 -- pummel-with-logs
++    // round, per explicit request. renderMonitor() is called once per
++    // real frame/screenshot attempt, and each call clears+rebuilds the
++    // capture buffer from scratch -- every log and dump below is tagged
++    // with this number so multiple calls (and their splices/dumps) can be
++    // correlated to the SAME frame instead of accidentally compared
++    // across unrelated ones (exactly what invalidated the last dump
++    // comparison: desktopWidgets and overview's dumps turned out to be
++    // from different renderMonitor() calls entirely).
++    static int selfCapFrameCounter = 0;
++    const int  thisFrame           = ++selfCapFrameCounter;
++
++    // CLAUDE/local: this is a CONTINUOUS, always-running capture (797
++    // frames delivered in one short session, confirmed via RESULT_COPIED
++    // count) -- capping detailed logs to "first 8 frames ever" only ever
++    // captures boot-time noise, never whatever's actually happening when
++    // the user checks. Switched to a shared, time-based decision (once
++    // every 2s) computed ONCE per frame here, reused by every detailed
++    // log/dump below -- this always reflects RECENT state, and dumps
++    // below now overwrite fixed filenames instead of freezing at whatever
++    // frame number happened to be under 8.
++    static Time::steady_tp selfCapLastDetailLog{};
++    const auto              selfCapNow          = Time::steadyNow();
++    const bool              selfCapLogDetailNow = std::chrono::duration_cast<std::chrono::milliseconds>(selfCapNow - selfCapLastDetailLog).count() > 2000;
++    if (selfCapLogDetailNow)
++        selfCapLastDetailLog = selfCapNow;
++    Log::logger->log(Log::DEBUG, "[selfCapDBG] ===== renderMonitor() call/frame #{} START =====", thisFrame);
++
+     const auto PMONITOR = m_session->monitor();
+ 
+     auto       TEXTURE = g_pHyprRenderer->m_renderData.pMonitor->resources()->getMirrorTexture();
+@@ -260,6 +295,181 @@ void CScreenshareFrame::renderMonitor() {
+             l->m_popupHead->breadthfirst(hidePopups(popupBaseOffset), nullptr);
+     }
+ 
++    // CLAUDE/local: no_self_capture. Independent of the no_screen_share loop
++    // above — paint the layer's own live "what's behind me" snapshot (kept
++    // fresh once per real frame by Renderer::makeSelfCaptureBackgroundFB) into
++    // this capture instead of leaving the layer's own self-reflecting content
++    // in place. Direct FBO blit rather than the CTexPassElement/pass system:
++    // both source and destination are plain Hyprland-rendered framebuffers in
++    // monitor pixel space, so a straight glBlitFramebuffer region copy is the
++    // simplest correct tool — same technique already proven by HyprGlass's own
++    // GlassRenderer::sampleBackground.
++    //
++    // CLAUDE/local: multiple simultaneous no_self_capture layers. This loop
++    // applies EVERY flagged layer's own substitution to the SAME output
++    // capture, one glBlitFramebuffer per layer, each covering that layer's
++    // own full geometry. When two flagged layers' geometry overlaps (e.g. a
++    // small dock inside a full-screen overview), whichever is processed
++    // LAST wins in the overlap — undoing the other's correct self-exclusion
++    // there. Concretely: overview's own "what's behind overview" snapshot
++    // still contains the dock rendered completely normally (only overview
++    // itself is hidden while that snapshot is made), so if overview's
++    // full-screen blit lands AFTER the dock's own (correct, dock-excluded)
++    // blit, the dock's region gets overwritten with the dock's OWN current
++    // frame again — reintroducing exactly the self-capture feedback loop
++    // this mechanism exists to prevent, which compounds every frame into a
++    // black/grey collapse. Sorting largest-area first, smallest last, makes
++    // the smaller/nested layer's own correct exclusion win within its own
++    // footprint regardless of Desktop::layerState()'s own (unspecified)
++    // ordering, while the larger layer still correctly owns everywhere
++    // outside that overlap.
++    // CLAUDE/local: TEMPORARY bisection test, 2026-09-18 -- user reports
++    // this exact splice mechanism corrupts even PLAIN screenshots (content
++    // confined to a small corner, rest black), not just glass surfaces.
++    // Disabling the whole splice unconditionally to confirm/rule out this
++    // loop as the cause before hunting the exact mechanism further.
++    constexpr bool DISABLE_SELF_CAPTURE_SPLICE_TEST = false;
++
++    std::vector<PHLLS> selfCaptureLayers;
++    size_t             flaggedTotal = 0, flaggedSkippedNotVisible = 0, flaggedSkippedNoBG = 0;
++    for (auto const& l : Desktop::layerState()->layers()) {
++        if (DISABLE_SELF_CAPTURE_SPLICE_TEST)
++            break;
++        if (!l->m_ruleApplicator->noSelfCapture().valueOrDefault())
++            continue;
++        flaggedTotal++;
++        if UNLIKELY (!l->visible()) {
++            flaggedSkippedNotVisible++;
++            continue;
++        }
++        if UNLIKELY (!l->m_selfCaptureBackground || !l->m_selfCaptureBackground->isAllocated()) {
++            flaggedSkippedNoBG++;
++            continue;
++        }
++        selfCaptureLayers.push_back(l);
++    }
++    {
++        if (selfCapLogDetailNow)
++            Log::logger->log(Log::DEBUG, "[selfCapDBG] FRAME#{} ScreenshareFrame splice loop: flaggedTotal={} skippedNotVisible={} skippedNoBG={} actuallySpliced={}", thisFrame,
++                              flaggedTotal, flaggedSkippedNotVisible, flaggedSkippedNoBG, selfCaptureLayers.size());
++    }
++    // CLAUDE/local: no_self_capture, real fix found 2026-09-18 after the
++    // demand-gate fix made this whole splice loop actually run for the
++    // first time all session. The comment above this sort explains the
++    // ORIGINAL reasoning (dock nested inside a full-screen overview: sort
++    // largest-first so the smaller, nested layer's own blit -- processed
++    // last -- correctly wins within its own smaller footprint, while the
++    // larger layer still owns everywhere outside that). That reasoning
++    // silently assumes overlapping layers actually differ in area. They
++    // don't always: Quickshell's own `quickshell:overview` (Spotlight) and
++    // `quickshell:desktopWidgets` layer SURFACES are BOTH anchored to the
++    // full monitor size (confirmed via hyprctl layers: identical
++    // 2880x1800 xywh for both, even though each one's actual VISIBLE
++    // content occupies only a small fraction of that box) -- for two
++    // layers with IDENTICAL area, "largest first" has no real ordering to
++    // give, and glBlitFramebuffer's dest box for BOTH covers the entire
++    // monitor -- whichever is sorted last completely overwrites 100% of
++    // the other's blit, discarding its correct self-exclusion outright,
++    // not just "somewhere in an overlap region". This is the actual cause
++    // of the wrong-region/self-referential glass bug reported throughout
++    // this whole session, confirmed by direct correlated logging showing
++    // both the snapshot generation AND this splice's own per-layer
++    // success (flaggedTotal == actuallySpliced, zero skips) are otherwise
++    // completely correct -- the bug is specifically in WHICH of two
++    // full-overlap splices survives.
++    //
++    // Fix: sort by real Z-ORDER (m_layer: background < bottom < top <
++    // overlay) as the PRIMARY key instead of area, so the layer that's
++    // actually rendered on TOP in the real compositor (Spotlight, an
++    // overlay layer, over desktop widgets on a lower layer) is processed
++    // LAST and correctly wins the overlap -- matching what should
++    // genuinely be visible there regardless of the two layers' relative
++    // sizes. Area stays as the SECONDARY tiebreaker for same-level ties,
++    // preserving the original nested-layer behavior unchanged for that
++    // case (e.g. two overlay-level layers of different sizes).
++    std::sort(selfCaptureLayers.begin(), selfCaptureLayers.end(), [](const PHLLS& a, const PHLLS& b) {
++        if (a->m_layer != b->m_layer)
++            return a->m_layer < b->m_layer;
++        const auto sizeA = a->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++        const auto sizeB = b->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++        return (sizeA.x * sizeA.y) > (sizeB.x * sizeB.y);
++    });
++
++    {
++        if (selfCapLogDetailNow && !selfCaptureLayers.empty()) {
++            std::string order;
++            for (const auto& l : selfCaptureLayers) {
++                const auto p = l->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++                const auto s = l->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++                order += std::format("[ns={} layer={} pos={},{} size={}x{}] ", l->m_namespace, l->m_layer, p.x, p.y, s.x, s.y);
++            }
++            Log::logger->log(Log::DEBUG, "[selfCapDBG] FRAME#{} splice ORDER (first=processed first=loses overlap, last=wins): {}", thisFrame, order);
++        }
++    }
++    for (auto const& l : selfCaptureLayers) {
++        const auto REALPOS  = l->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++        const auto REALSIZE = l->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++
++        const auto destBox = CBox{REALPOS.x, REALPOS.y, std::max(REALSIZE.x, 5.0), std::max(REALSIZE.y, 5.0)}
++                                  .translate(-PMONITOR->m_position)
++                                  .scale(PMONITOR->m_scale)
++                                  .translate(-m_session->m_captureBox.pos())
++                                  .round();
++
++        // Source box: the same layer geometry, in monitor pixel coordinates,
++        // then scaled down by however much smaller the actual snapshot FB
++        // is than the monitor itself (see makeSelfCaptureBackgroundFB's own
++        // SELF_CAPTURE_RENDER_SCALE) — derived from the FB's OWN allocated
++        // size rather than a second hardcoded constant here, so this stays
++        // correct regardless of whatever scale Renderer.cpp picks.
++        // glBlitFramebuffer scales src->dest with GL_LINEAR below, so the
++        // smaller source blits back up to full destination size for free.
++        const bool selfCaptureScaled = l->m_selfCaptureBackground && l->m_selfCaptureBackground->m_size != PMONITOR->m_pixelSize && PMONITOR->m_pixelSize.x > 0 &&
++            PMONITOR->m_pixelSize.y > 0;
++        const Vector2D selfCaptureScale =
++            selfCaptureScaled ? l->m_selfCaptureBackground->m_size / PMONITOR->m_pixelSize : Vector2D{1.0, 1.0};
++
++        auto srcBox = CBox{REALPOS.x, REALPOS.y, std::max(REALSIZE.x, 5.0), std::max(REALSIZE.y, 5.0)}
++                          .translate(-PMONITOR->m_position)
++                          .scale(PMONITOR->m_scale)
++                          .round();
++        if (selfCaptureScaled)
++            srcBox.scale(selfCaptureScale).round();
++
++        if (destBox.w <= 0 || destBox.h <= 0 || srcBox.w <= 0 || srcBox.h <= 0)
++            continue;
++
++        auto* pSrcFB  = dynamic_cast<Render::GL::CGLFramebuffer*>(l->m_selfCaptureBackground.get());
++        auto* pDestFB = dynamic_cast<Render::GL::CGLFramebuffer*>(g_pHyprRenderer->m_renderData.currentFB.get());
++        if (!pSrcFB || !pDestFB)
++            continue;
++
++        if (selfCaptureScaled && selfCapLogDetailNow)
++            Log::logger->log(Log::DEBUG, "[selfCapScale] blit srcBox scaled by {}x{} -> {}x{} (FB {}x{}, monitor {}x{})", selfCaptureScale.x, selfCaptureScale.y, srcBox.w,
++                              srcBox.h, l->m_selfCaptureBackground->m_size.x, l->m_selfCaptureBackground->m_size.y, PMONITOR->m_pixelSize.x, PMONITOR->m_pixelSize.y);
++
++        // CLAUDE/local: pummel-with-logs round -- UNTHROTTLED, tagged with
++        // thisFrame, for the first 8 frames only (a 1s throttle spans
++        // MULTIPLE renderMonitor() calls and mixes frames together, which
++        // is exactly what made the previous round of dumps incomparable).
++        if (selfCapLogDetailNow)
++            Log::logger->log(
++                Log::DEBUG,
++                "[selfCapDBG] FRAME#{} BLIT ns={} order_index={} REALPOS={},{} REALSIZE={}x{} captureBox={},{} {}x{} monitorPos={},{} -> srcBox={},{} {}x{} destBox={},{} {}x{} "
++                "pSrcFB_id={} pDestFB_id={}",
++                thisFrame, l->m_namespace, sc<int>(&l - &selfCaptureLayers[0]), REALPOS.x, REALPOS.y, REALSIZE.x, REALSIZE.y, m_session->m_captureBox.x,
++                m_session->m_captureBox.y, m_session->m_captureBox.w, m_session->m_captureBox.h, PMONITOR->m_position.x, PMONITOR->m_position.y, srcBox.x, srcBox.y, srcBox.w,
++                srcBox.h, destBox.x, destBox.y, destBox.w, destBox.h, pSrcFB->getFBID(), pDestFB->getFBID());
++
++        Render::GL::g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, pSrcFB->getFBID());
++        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, pDestFB->getFBID());
++        glBlitFramebuffer(sc<int>(srcBox.x), sc<int>(srcBox.y), sc<int>(srcBox.x + srcBox.w), sc<int>(srcBox.y + srcBox.h), sc<int>(destBox.x), sc<int>(destBox.y),
++                          sc<int>(destBox.x + destBox.w), sc<int>(destBox.y + destBox.h), GL_COLOR_BUFFER_BIT, GL_LINEAR);
++        glBindFramebuffer(GL_FRAMEBUFFER, pDestFB->getFBID());
++
++    }
++
+     for (auto const& w : Desktop::windowState()->windows()) {
+         if (!w->m_ruleApplicator->noScreenShare().valueOrDefault())
+             continue;
+@@ -359,12 +569,24 @@ void CScreenshareFrame::renderWindow() {
+ void CScreenshareFrame::render() {
+     const auto PERM = g_pDynamicPermissionManager->clientPermissionMode(m_session->m_client, PERMISSION_TYPE_SCREENCOPY);
+ 
++    {
++        static Time::steady_tp lastLog{};
++        const auto              now = Time::steadyNow();
++        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLog).count() > 1000) {
++            lastLog = now;
++            Log::logger->log(Log::DEBUG, "[selfCapDBG] CScreenshareFrame::render() PERM={} sessionType={} tempFB={}", (int)PERM, (int)m_session->m_type,
++                              m_session->m_tempFB ? m_session->m_tempFB->isAllocated() : false);
++        }
++    }
++
+     CRegion    frameRegion = {0, 0, g_pHyprRenderer->m_renderData.pMonitor->m_pixelSize.x, g_pHyprRenderer->m_renderData.pMonitor->m_pixelSize.y};
+ 
+     g_pHyprRenderer->draw(CClearPassElement::SClearData{{0, 0, 0, 0}}, frameRegion);
+ 
+-    if (PERM == PERMISSION_RULE_ALLOW_MODE_PENDING)
++    if (PERM == PERMISSION_RULE_ALLOW_MODE_PENDING) {
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] CScreenshareFrame::render() RETURNING EARLY due to PERMISSION_RULE_ALLOW_MODE_PENDING -- substitution logic never reached");
+         return;
++    }
+ 
+     bool windowShareDenied = m_session->m_type == SHARE_WINDOW && m_session->m_window->m_ruleApplicator && m_session->m_window->m_ruleApplicator->noScreenShare().valueOrDefault();
+     g_pHyprRenderer->startRenderPass();
+@@ -416,6 +638,7 @@ bool CScreenshareFrame::copyDmabuf() {
+             return;
+ 
+         LOGM(Log::TRACE, "Copied frame via dma");
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] *** RESULT_COPIED (dmabuf) -- this is a frame actually handed off as the real capture output ***");
+         self->m_callback(RESULT_COPIED);
+         self->m_copied = true;
+     });
+@@ -472,6 +695,7 @@ bool CScreenshareFrame::copyShm() {
+ 
+     if (!m_copied) {
+         LOGM(Log::TRACE, "Copied frame via shm");
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] *** RESULT_COPIED (shm) -- this is a frame actually handed off as the real capture output ***");
+         m_callback(RESULT_COPIED);
+         m_copied = true;
+     }
+diff --git a/src/output/DamageRing.hpp b/src/output/DamageRing.hpp
+index f5d880ed..55b501fc 100644
+--- a/src/output/DamageRing.hpp
++++ b/src/output/DamageRing.hpp
+@@ -15,6 +15,15 @@ namespace Monitor {
+         void    rotate();
+         CRegion getBufferDamage(int age);
+         bool    hasChanged();
++        // CLAUDE/local: no_self_capture perf. Read-only peek at the damage
++        // accumulated since the last rotate() (i.e. since the last real
++        // frame render) — used to test whether damage overlaps a SPECIFIC
++        // region (e.g. one layer's own footprint) rather than just "did
++        // anything change anywhere" (hasChanged()). Purely additive: every
++        // existing caller/behavior is untouched.
++        const CRegion& current() const {
++            return m_current;
++        }
+ 
+       private:
+         Vector2D                                      m_size;
+diff --git a/src/render/ElementRenderer.cpp b/src/render/ElementRenderer.cpp
+index 50b5a797..9b14df13 100644
+--- a/src/render/ElementRenderer.cpp
++++ b/src/render/ElementRenderer.cpp
+@@ -197,6 +197,11 @@ void IElementRenderer::drawPreBlur(WP<CPreBlurElement> element, const CRegion& d
+     TRACY_GPU_ZONE("RenderPreBlurForCurrentMonitor");
+     auto&      m_renderData = g_pHyprRenderer->m_renderData;
+ 
++    if (g_pHyprRenderer->m_bRenderingSnapshot)
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] drawPreBlur ENTERED during self-capture snapshot -- currentFB={}x{} monitorPx={}x{} (should NOT happen if the gate is working)",
++                          m_renderData.currentFB ? m_renderData.currentFB->m_size.x : -1, m_renderData.currentFB ? m_renderData.currentFB->m_size.y : -1, m_renderData.pMonitor->m_pixelSize.x,
++                          m_renderData.pMonitor->m_pixelSize.y);
++
+     const auto SAVEDRENDERMODIF = m_renderData.renderModif;
+     m_renderData.renderModif    = {}; // fix shit
+ 
+@@ -469,14 +474,45 @@ void IElementRenderer::drawTex(WP<CTexPassElement> element, const CRegion& damag
+         element->m_data.blockBlurOptimization = element->m_data.blockBlurOptimization.value_or(false) ||
+             !g_pHyprRenderer->shouldUseNewBlurOptimizations(element->m_data.currentLS.lock(), m_renderData.currentWindow.lock());
+ 
++        // CLAUDE/local: no_self_capture perf, resolution downscale --
++        // second blur bug, found 2026-09-18 after the demand-gate fix made
++        // this path actually reachable for the first time. The "new
++        // optimizations" branch below samples m_blurFB directly -- a
++        // PERSISTENT, MONITOR-NATIVE-sized resource -- completely
++        // independent of whatever's currently being rendered into. At
++        // scale 1.0 that's harmless (sizes match by construction). At any
++        // other self-capture scratch scale, this reads monitor-space
++        // content into a smaller-scale render with no coordinate
++        // adjustment at all -- the same class of bug as drawPreBlur's
++        // fixed earlier, just on the READ side instead of the WRITE side
++        // (that fix only stopped m_blurFB from being corrupted mid-scratch-
++        // render; it never stopped other surfaces reading it directly
++        // during that same render). Force the scale-correct
++        // blockBlurOptimization path (blurMainFramebuffer, which operates
++        // on whatever's ACTUALLY bound right now) whenever the active
++        // render target isn't monitor-sized, exactly mirroring the
++        // drawPreBlur fix's own gating condition.
++        const bool forceScaleCorrectBlur =
++            g_pHyprRenderer->m_bRenderingSnapshot && (!m_renderData.currentFB || m_renderData.currentFB->m_size != m_renderData.pMonitor->m_pixelSize);
++
+         //   vvv TODO: layered blur fbs?
+-        if (element->m_data.blockBlurOptimization.value_or(false)) {
++        if (element->m_data.blockBlurOptimization.value_or(false) || forceScaleCorrectBlur) {
+             inverseOpaque.translate(box.pos());
+             m_renderData.renderModif.applyToRegion(inverseOpaque);
+             inverseOpaque.intersect(element->m_data.damage);
++            if (g_pHyprRenderer->m_bRenderingSnapshot)
++                Log::logger->log(Log::DEBUG, "[selfCapDBG] drawTex: blockBlurOptimization path (blurMainFramebuffer, scale-correct) box={},{} {}x{} currentFB={}x{}", box.x, box.y,
++                                  box.width, box.height, m_renderData.currentFB ? m_renderData.currentFB->m_size.x : -1, m_renderData.currentFB ? m_renderData.currentFB->m_size.y : -1);
+             element->m_data.blurredBG = g_pHyprRenderer->blurMainFramebuffer(element->m_data.a, &inverseOpaque);
+-        } else
++        } else {
++            if (g_pHyprRenderer->m_bRenderingSnapshot)
++                Log::logger->log(Log::DEBUG,
++                                  "[selfCapDBG] drawTex: SAMPLING PERSISTENT m_blurFB directly (new_optimizations path) box={},{} {}x{} monitorPx={}x{} currentFB={}x{} -- this "
++                                  "buffer is monitor-native-sized and NOT scoped to the active scratch render, likely wrong/stale content here",
++                                  box.x, box.y, box.width, box.height, m_renderData.pMonitor->m_pixelSize.x, m_renderData.pMonitor->m_pixelSize.y,
++                                  m_renderData.currentFB ? m_renderData.currentFB->m_size.x : -1, m_renderData.currentFB ? m_renderData.currentFB->m_size.y : -1);
+             element->m_data.blurredBG = m_renderData.pMonitor->resources()->m_blurFB->getTexture();
++        }
+ 
+         draw(element, damage);
+     } else
+diff --git a/src/render/OpenGL.cpp b/src/render/OpenGL.cpp
+index baee1ad2..e90b2ffb 100644
+--- a/src/render/OpenGL.cpp
++++ b/src/render/OpenGL.cpp
+@@ -992,6 +992,29 @@ void CHyprOpenGLImpl::scissor(const CBox& originalBox, bool transform) {
+     auto& m_renderData = g_pHyprRenderer->m_renderData;
+     RASSERT(m_renderData.pMonitor, "Tried to scissor without begin()!");
+ 
++    // CLAUDE/local: root cause #3 of the self-capture downscale saga,
++    // found 2026-09-18 -- confirmed via the user's own live testing after
++    // the geometry-box fix (which correctly fixed the overall SIZE) still
++    // showed windows getting progressively clipped away the further right/
++    // down they sat on screen. Scissor boxes here are computed directly in
++    // full MONITOR pixel coordinates (0..2880), then handed straight to
++    // glScissor(), which interprets them relative to whatever framebuffer
++    // is ACTUALLY bound right now -- our self-capture scratch FB, which is
++    // only SELF_CAPTURE_RENDER_SCALE (0.5) as wide/tall as the monitor.
++    // Anything positioned past the scratch FB's own smaller bounds (e.g.
++    // x > 1440 on a 2880-wide monitor) produces an out-of-bounds scissor
++    // rect and gets clipped away entirely -- explaining "left half fine,
++    // right half disappears; the farther right/down, the more gets cut
++    // off". We don't need per-window scissoring during a full-scene
++    // snapshot capture anyway -- we WANT everything drawn regardless of
++    // individual window damage/bounds -- so just skip scissoring
++    // entirely while this snapshot render is active, rather than trying
++    // to rescale every scissor box to match the scratch FB's own size.
++    if (g_pHyprRenderer->m_bRenderingSnapshot) {
++        setCapStatus(GL_SCISSOR_TEST, false);
++        return;
++    }
++
+     // only call glScissor if the box has changed
+     static CBox m_lastScissorBox = {};
+ 
+@@ -1102,6 +1125,24 @@ void CHyprOpenGLImpl::renderRectWithDamageInternal(const CBox& box, const CHyprC
+ 
+     glBindVertexArray(shader->getUniformLocation(SHADER_SHADER_VAO));
+ 
++    // CLAUDE/local: live viewport measurement AT THE ACTUAL DRAW CALL,
++    // 2026-09-18 -- every prior viewport check happened before endRender(),
++    // i.e. before the render pass actually executes any real drawing.
++    // This is the first check to fire literally at a real glDrawArrays
++    // call during self-capture, to settle whether the viewport is still
++    // correct by the time actual content gets drawn, or whether something
++    // mid-pass has changed it back. Throttled to a handful of samples.
++    static int selfCapDrawSamples = 0;
++    if (g_pHyprRenderer->m_bRenderingSnapshot && selfCapDrawSamples < 12) {
++        selfCapDrawSamples++;
++        GLint vp[4] = {-1, -1, -1, -1};
++        glGetIntegerv(GL_VIEWPORT, vp);
++        GLint fbo = -1;
++        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] AT DRAW CALL #{}: actual GL viewport={},{} {}x{} bound FBO={} box={},{} {}x{}", selfCapDrawSamples, vp[0], vp[1], vp[2], vp[3],
++                          fbo, box.x, box.y, box.width, box.height);
++    }
++
+     if (g_pHyprRenderer->m_renderData.clipBox.width != 0 && g_pHyprRenderer->m_renderData.clipBox.height != 0) {
+         CRegion damageClip{g_pHyprRenderer->m_renderData.clipBox.x, g_pHyprRenderer->m_renderData.clipBox.y, g_pHyprRenderer->m_renderData.clipBox.width,
+                            g_pHyprRenderer->m_renderData.clipBox.height};
+diff --git a/src/render/Renderer.cpp b/src/render/Renderer.cpp
+index 249f0843..0a506925 100644
+--- a/src/render/Renderer.cpp
++++ b/src/render/Renderer.cpp
+@@ -1,10 +1,13 @@
+ #include "Renderer.hpp"
+ #include "../Compositor.hpp"
++#include "../managers/screenshare/ScreenshareManager.hpp"
+ #include "../helpers/math/Math.hpp"
+ #include <algorithm>
+ #include <aquamarine/output/Output.hpp>
+ #include <cmath>
++#include <cstdio>
+ #include <filesystem>
++#include <set>
+ #include "../config/ConfigValue.hpp"
+ #include "../config/legacy/ConfigManager.hpp"
+ #include "../pointer/cursor/CursorManager.hpp"
+@@ -51,6 +54,7 @@
+ #include "AsyncResourceGatherer.hpp"
+ #include "ElementRenderer.hpp"
+ #include "Framebuffer.hpp"
++#include "gl/GLFramebuffer.hpp"
+ #include "OpenGL.hpp"
+ #include "Texture.hpp"
+ #include "./pass/PreBlurElement.hpp"
+@@ -939,6 +943,11 @@ void IHyprRenderer::renderLayer(PHLLS pLayer, PHLMONITOR pMonitor, const Time::s
+     if (!pLayer->visible())
+         return;
+ 
++    // CLAUDE/local: no_self_capture. Skip this layer's own content ONLY during
++    // makeSelfCaptureBackgroundFB's own fake render, never during a real frame.
++    if (pLayer->m_hiddenForSelfCapture)
++        return;
++
+     // skip rendering based on abovelock rule and make sure to not render abovelock layers twice
+     if ((pLayer->m_ruleApplicator->aboveLock().valueOrDefault() && !lockscreen && g_pSessionLockManager->isSessionLocked()) ||
+         (lockscreen && !pLayer->m_ruleApplicator->aboveLock().valueOrDefault()))
+@@ -1174,8 +1183,40 @@ void IHyprRenderer::renderAllClientsForWorkspace(PHLMONITOR pMonitor, PHLWORKSPA
+         renderFadeouts(pMonitor, Desktop::FADEOUT_PLANE_LAYER_BOTTOM);
+     }
+ 
++    // CLAUDE/local: no_self_capture perf, resolution downscale — root
++    // cause found, 2026-09-18. preBlurForCurrentMonitor (what
++    // CPreBlurElement ultimately triggers) binds
++    // pMonitor->resources()->m_blurFB — a PERSISTENT, monitor-NATIVE-sized
++    // resource — via bindTempFB(), which only does a plain FBO bind and
++    // does NOT touch the viewport. When the currently-bound render target
++    // is SMALLER than the monitor (our self-capture scratch FB), the
++    // active viewport at that point is still the smaller one — so this
++    // blur pass paints only a small corner of that monitor-sized buffer
++    // through the undersized viewport, leaving the rest of it stale/
++    // undefined, which then gets sampled as real blur content later. This
++    // is the actual root cause of the "part of the desktop that doesn't
++    // exist" bug across every resolution-downscale attempt so far —
++    // confirmed by reading bindTempFB's real implementation, not guessed.
++    //
++    // Fixed by skipping this queueing specifically when the current
++    // render target's size doesn't match the monitor's own — i.e. only
++    // for a downscaled render like ours, never for makeSnapshotFB's
++    // close-animation snapshots (which use this same shared function but
++    // always allocate at full monitor size, so they were never actually
++    // affected by this bug and keep their existing blur-behind-window
++    // behavior unchanged). A skipped blur precompute here is a substitute
++    // background that gets blurred AGAIN by the QML-side glass shader
++    // regardless, so it should be visually imperceptible in exchange for
++    // completely avoiding the mismatched-buffer-size path.
++    const bool renderTargetIsMonitorSized = m_renderData.currentFB && m_renderData.currentFB->m_size == pMonitor->m_pixelSize;
++
++    if (m_bRenderingSnapshot)
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] renderAllClientsForWorkspace during snapshot: preBlurQueued={} renderTargetIsMonitorSized={} currentFB={}x{} monitorPx={}x{}",
++                          preBlurQueued(pMonitor), renderTargetIsMonitorSized, m_renderData.currentFB ? m_renderData.currentFB->m_size.x : -1,
++                          m_renderData.currentFB ? m_renderData.currentFB->m_size.y : -1, pMonitor->m_pixelSize.x, pMonitor->m_pixelSize.y);
++
+     // pre window pass
+-    if (preBlurQueued(pMonitor))
++    if (preBlurQueued(pMonitor) && renderTargetIsMonitorSized)
+         m_renderPass.add(makeUnique<CPreBlurElement>());
+ 
+     if UNLIKELY /* subjective? */ (Fullscreen::controller()->hasFullscreen(pWorkspace))
+@@ -1287,6 +1328,9 @@ void IHyprRenderer::renderIME(PHLMONITOR pMonitor, const Time::steady_tp& now, c
+ 
+ SP<ITexture> IHyprRenderer::getBackground(PHLMONITOR pMonitor) {
+ 
++    if (m_bRenderingSnapshot)
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] getBackground() CALLED during self-capture snapshot -- this path unconditionally restores viewport to monitor size at its end");
++
+     if (m_backgroundResourceFailed)
+         return nullptr;
+ 
+@@ -2016,7 +2060,27 @@ void IHyprRenderer::renderMirrored() {
+     m_renderPass.add(makeUnique<CTexPassElement>(std::move(data)));
+ }
+ 
++static void selfCapCkpt(int n, const char* label) {
++    // CLAUDE/local: checkpoint tracing, 2026-09-18 -- self-capture's own
++    // diagnostic further down renderMonitor() has never once logged
++    // despite confirmed real interaction over many separate tests via
++    // three independent, unbuffered log paths (dedicated sink, hyprctl
++    // rollinglog). Directly tracing every early-return point in that
++    // function to find out where it's actually exiting. Throttled
++    // per-checkpoint to ~1/sec each -- a plain free function (not a
++    // lambda) so a single static array works across every call site.
++    static Time::steady_tp lastCkpt[8] = {};
++    if (n < 0 || n >= 8)
++        return;
++    const auto now = Time::steadyNow();
++    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastCkpt[n]).count() > 1000) {
++        lastCkpt[n] = now;
++        Log::logger->log(Log::DEBUG, "[selfCapDBG] renderMonitor checkpoint {} ({})", n, label);
++    }
++}
++
+ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
++    selfCapCkpt(0, "entered, pMonitor valid");
+     if (!pMonitor)
+         return;
+     static std::chrono::high_resolution_clock::time_point renderStart        = std::chrono::high_resolution_clock::now();
+@@ -2033,6 +2097,7 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
+ 
+     const float                                           ZOOMFACTOR = pMonitor->m_cursorZoom->value();
+ 
++    selfCapCkpt(1, "past null check, before pixel size check");
+     if (pMonitor->m_pixelSize.x < 1 || pMonitor->m_pixelSize.y < 1) {
+         Log::logger->log(Log::ERR, "Refusing to render a monitor because of an invalid pixel size: {}", pMonitor->m_pixelSize);
+         return;
+@@ -2046,6 +2111,7 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
+         Debug::overlay()->frameData(pMonitor);
+     }
+ 
++    selfCapCkpt(2, "past pixel size check, before session-active check");
+     if (!g_pCompositor->m_sessionActive)
+         return;
+ 
+@@ -2068,17 +2134,20 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
+             pMonitor->m_activeWorkspace->m_space->recalculate(Layout::RECALCULATE_REASON_RENDER_MONITOR);
+     }
+ 
++    selfCapCkpt(3, "before needsFrame/damage early-return check");
+     // needsFrame can be cleared by commits that didnt consume our damage like a
+     // commit while a pageflip was in flight, so pending damage must keep the frame alive.
+     if (!pMonitor->m_output->needsFrame && pMonitor->m_forceFullFrames == 0 && !pMonitor->m_damage.hasChanged())
+         return;
+ 
++    selfCapCkpt(4, "past needsFrame/damage check, before direct-scanout check");
+     // tearing and DS first
+     bool       shouldTear              = pMonitor->updateTearing();
+     const bool canAttemptDirectScanout = pMonitor->canAttemptDirectScanoutFast();
+ 
+     if (canAttemptDirectScanout) {
+         if (pMonitor->attemptDirectScanout()) {
++            selfCapCkpt(5, "RETURNED via direct scanout success");
+             if (!pMonitor->needsACopyFB())
+                 pMonitor->resources()->markMirrorFBStale();
+ 
+@@ -2092,10 +2161,289 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
+             pMonitor->handleDSleave();
+     }
+ 
++    selfCapCkpt(6, "past direct-scanout branch, about to reach self-capture demand-gate area");
+     Event::bus()->m_events.render.pre.emit(pMonitor);
+ 
+     const auto NOW = Time::steadyNow();
+ 
++    // CLAUDE/local: no_self_capture. Independent per-layer "what's behind me"
++    // snapshot, refreshed here once per real frame — see
++    // makeSelfCaptureBackgroundFB. Runs BEFORE the real render pass starts
++    // below, so there is no nesting — completely opt-in per layer, zero cost
++    // for anyone not using the rule.
++    //
++    // CLAUDE/local: no_self_capture perf, grouped rendering. Originally one
++    // fully independent full-scene render per flagged layer — fine at 1-2
++    // layers, but measured as a real problem once more glass surfaces were
++    // added (bar + 2 desktop widgets on top of the dock took idle GPU from
++    // ~32% to ~75-79%, each paying for its own identical extra scene
++    // render). Layers that never geometrically overlap ANY other flagged
++    // layer (the common case — the dock, the bar, and desktop widgets
++    // normally occupy disjoint screen regions) can safely share ONE
++    // combined render instead: hiding layer A also hides layer B in that
++    // shared render, which is exactly what B's own snapshot should show
++    // anyway if B never occludes A. Layers that DO overlap another flagged
++    // layer (the dock nested inside Spotlight when both are open) keep the
++    // existing one-render-per-layer path completely unchanged below —
++    // sharing there would incorrectly hide a layer that's genuinely
++    // supposed to stay visible in another's snapshot (see the "multiple
++    // simultaneous no_self_capture layers" fix in ScreenshareFrame.cpp for
++    // the actual nested case this preserves).
++    // CLAUDE/local: no_self_capture perf, demand gating -- ADDED 2026-09-17,
++    // REVERTED 2026-09-18 after being root-caused as a real, silent
++    // regression, not a working optimization. The theory was that
++    // pMonitor->needsACopyFB() (Screenshare::mgr()'s tracked screencopy
++    // SESSIONS) would mirror "does Quickshell's own glass-capture
++    // ScreencopyView currently want a fresh frame" -- it does not.
++    // Quickshell's ScreencopyView captures are never tracked as a
++    // CScreenshareManager session at all (confirmed by direct correlated
++    // logging both sides: QML's own [scsdbg] showed cap.live/reg.live
++    // toggling true repeatedly over a full 6-second confirmed-active
++    // window, while THIS gate -- logged unconditionally, once/sec, right
++    // here -- never once observed needsACopyFB() return true during that
++    // same window). The practical effect since 2026-09-17: self-capture
++    // regeneration has been silently DISABLED for every no_self_capture
++    // layer (dock, Spotlight, desktop widgets) any time nothing else
++    // (an actual screen recorder/share) is also active -- i.e. essentially
++    // always, for this user. Without a fresh regen, whatever Quickshell's
++    // own full-screen ScreencopyView captures for its glass background
++    // includes NO valid substitution for the flagged layer's own on-screen
++    // region, producing a self-referential/stale capture -- almost
++    // certainly the real explanation for the "wrong region / coordinates
++    // that don't exist" glass artifact reported throughout this entire
++    // session, predating and independent of any of the resolution-
++    // downscale attempts built on top of this same (broken) demand gate.
++    // Back to the pre-2026-09-17 behavior: run for every flagged, mapped
++    // layer, gated only by the 60Hz throttle + damage-overlap check
++    // below (never removed, still doing real work) -- correctness over
++    // an optimization that was silently disabling the feature it sits on.
++    const bool selfCaptureDemanded = true;
++
++    // CLAUDE/local: kept as a permanent, cheap (throttled to ~1/sec) sanity
++    // log -- this is exactly the log that proved the old gate was dead, so
++    // leaving it in place means any FUTURE regression here is immediately
++    // visible in the log again instead of requiring another multi-hour
++    // rediscovery.
++    {
++        static Time::steady_tp lastDiagLog{};
++        const auto              now = Time::steadyNow();
++        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastDiagLog).count() > 1000) {
++            lastDiagLog       = now;
++            size_t flaggedNow = 0;
++            for (const auto& l : Desktop::layerState()->layers()) {
++                if (!l || !l->m_mapped || l->m_monitor.lock() != pMonitor)
++                    continue;
++                if (l->m_ruleApplicator->noSelfCapture().valueOrDefault())
++                    flaggedNow++;
++            }
++            Log::logger->log(Log::DEBUG, "[selfCapDBG] demand-gate check (fixed 2026-09-18, always true now): ScreenshareMgr={} needsACopyFB={} selfCaptureDemanded={} flaggedLayersOnThisMonitor={}",
++                              (bool)Screenshare::mgr(), pMonitor->needsACopyFB(), selfCaptureDemanded, flaggedNow);
++        }
++    }
++
++    std::vector<PHLLS> selfCaptureFlaggedLayers;
++    if (selfCaptureDemanded) {
++        for (const auto& l : Desktop::layerState()->layers()) {
++            if (!l || !l->m_mapped || l->m_monitor.lock() != pMonitor)
++                continue;
++            if (!l->m_ruleApplicator->noSelfCapture().valueOrDefault())
++                continue;
++            selfCaptureFlaggedLayers.push_back(l);
++        }
++    }
++
++    const auto selfCaptureLayerBox = [&pMonitor](const PHLLS& l) -> CBox {
++        const auto POS  = l->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++        const auto SIZE = l->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
++        return CBox{POS, SIZE}.translate(-pMonitor->m_position).scale(pMonitor->m_scale);
++    };
++
++    std::vector<PHLLS> selfCaptureIsolatedLayers, selfCaptureOverlappingLayers;
++    for (size_t i = 0; i < selfCaptureFlaggedLayers.size(); ++i) {
++        bool overlapsAny = false;
++        for (size_t j = 0; j < selfCaptureFlaggedLayers.size(); ++j) {
++            if (i == j)
++                continue;
++            CRegion ov = CRegion{selfCaptureLayerBox(selfCaptureFlaggedLayers[i])}.intersect(selfCaptureLayerBox(selfCaptureFlaggedLayers[j]));
++            if (!ov.empty()) {
++                overlapsAny = true;
++                break;
++            }
++        }
++        (overlapsAny ? selfCaptureOverlappingLayers : selfCaptureIsolatedLayers).push_back(selfCaptureFlaggedLayers[i]);
++    }
++
++    // CLAUDE/local: text-only, throttled (~1/sec) group-membership log,
++    // 2026-09-18 -- a visible seam/step artifact was spotted at the
++    // boundary between two regions on screen (real screenshot, not a
++    // dump), suggesting two self-capture-substituted regions (or a
++    // substituted region against the real live content) disagree about
++    // where their own boundary is. This makes the GENERATION side's own
++    // grouping decision visible (which namespaces got merged into ONE
++    // shared render vs kept as independent per-layer renders) so it can
++    // be correlated against the SPLICE side's own "splice ORDER" log
++    // (ScreenshareFrame.cpp) for the same frame -- if a layer group here
++    // doesn't match what actually got spliced, that mismatch IS the bug.
++    {
++        static Time::steady_tp lastGroupLog{};
++        const auto              groupNow = Time::steadyNow();
++        if (std::chrono::duration_cast<std::chrono::milliseconds>(groupNow - lastGroupLog).count() > 1000 &&
++            (!selfCaptureIsolatedLayers.empty() || !selfCaptureOverlappingLayers.empty())) {
++            lastGroupLog = groupNow;
++            std::string isoStr, ovStr;
++            for (const auto& l : selfCaptureIsolatedLayers) {
++                const auto b = selfCaptureLayerBox(l);
++                isoStr += std::format("[{} box={},{} {}x{} scratch={}]", l->m_namespace, b.x, b.y, b.w, b.h, (void*)l->m_selfCaptureScratch.get());
++            }
++            for (const auto& l : selfCaptureOverlappingLayers) {
++                const auto b = selfCaptureLayerBox(l);
++                ovStr += std::format("[{} box={},{} {}x{} scratch={}]", l->m_namespace, b.x, b.y, b.w, b.h, (void*)l->m_selfCaptureScratch.get());
++            }
++            Log::logger->log(Log::DEBUG, "[selfCapGroup] monitor={} ISOLATED(shared render)={} OVERLAPPING(per-layer render)={}", pMonitor->m_name,
++                              isoStr.empty() ? "-" : isoStr, ovStr.empty() ? "-" : ovStr);
++        }
++    }
++
++    // CLAUDE/local: no_self_capture perf, demand-resume bypass (2026-09-17).
++    // Stamped on every layer that reaches either loop below THIS real frame
++    // — i.e. every frame selfCaptureDemanded was true — independent of the
++    // 60Hz throttle inside each loop, so a gap here means demand was
++    // genuinely absent for a while (e.g. across a screen lock, until
++    // unlock-recovery re-armed it), not just "the throttle hasn't come due
++    // yet". See m_lastSelfCaptureVisitTime's own comment (LayerSurface.hpp)
++    // for why this matters: the damage-overlap check below only covers the
++    // single most recent real frame, so it has no way to know what changed
++    // behind a layer during a demand gap it wasn't even watching through.
++    const auto realFrameInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
++        std::chrono::duration<double>(1.0 / std::max(pMonitor->m_refreshRate, 30.f)));
++    const auto demandResumedAfterGap = [&](const PHLLS& l) -> bool {
++        const bool gap                = (NOW - l->m_lastSelfCaptureVisitTime) > realFrameInterval * 3;
++        l->m_lastSelfCaptureVisitTime = NOW;
++        return gap;
++    };
++
++    // Overlapping layers: existing one-render-per-layer path, unchanged.
++    for (const auto& l : selfCaptureOverlappingLayers) {
++        const bool resumedAfterGap = demandResumedAfterGap(l);
++        // Perf: throttle regeneration to this monitor's own actual refresh
++        // rate rather than an assumed fixed one — this is a full extra
++        // render of the entire scene (see makeSelfCaptureBackgroundFB), so
++        // doing it more often than the display can even show is wasted GPU
++        // work, but capping it below the real refresh rate is a visible
++        // (and avoidable) lag between what's behind the glass and what it
++        // shows. Always captures immediately the first time
++        // (m_selfCaptureBackground not yet allocated), so opening the panel
++        // isn't delayed by the throttle.
++        //
++        // CLAUDE/local: also hard-capped at 60Hz even on higher-refresh
++        // monitors (this system runs 120Hz) — this snapshot only feeds a
++        // static "what's behind me" texture for glass panels that also blur
++        // and re-refract it, so any redraw frequency past 60Hz is well
++        // beyond what's visually distinguishable there, while still being a
++        // full extra scene render at 2x the GPU cost. Confirmed via
++        // measured coil-whine/gpu_busy_percent complaints while a glass
++        // panel (Spotlight) sat open and static. (A resolution-downscale
++        // attempt at the actual per-call cost was tried and reverted
++        // 2026-09-13 — it required a general-purpose GL viewport change in
++        // OpenGL.cpp that broke the hardware cursor's rendered size
++        // system-wide, well outside this patch's own scope. Back to this
++        // simpler, narrowly-scoped frequency cap only.)
++        const auto     hz               = std::min(pMonitor->m_refreshRate > 1.f ? pMonitor->m_refreshRate : 60.f, 60.f);
++        const auto     minSelfCaptureInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / hz));
++        const bool     alreadyAllocated  = l->m_selfCaptureBackground && l->m_selfCaptureBackground->isAllocated();
++        if (alreadyAllocated && (NOW - l->m_lastSelfCaptureTime) < minSelfCaptureInterval)
++            continue;
++
++        // CLAUDE/local: no_self_capture perf. On top of the 60Hz cap above,
++        // skip the regeneration entirely if nothing behind THIS layer's own
++        // footprint has actually changed since the last real frame — a
++        // permanently-mapped glass panel (the dock) was paying for a full
++        // extra scene render on every throttle interval FOREVER, even with
++        // a completely idle desktop. pMonitor->m_damage.current() is the
++        // accumulated damage since the last rotate() (the last real frame),
++        // read-only — never consumed/cleared here, so the real frame's own
++        // damage tracking is untouched. Intersecting a COPY of it against
++        // just this layer's own box (not the whole monitor) means a change
++        // happening somewhere else on screen, outside this layer's own
++        // area, correctly doesn't trigger a regeneration either. Only
++        // applies once a first capture already exists — the very first
++        // capture after a panel opens always happens regardless (matching
++        // the existing throttle's own "always captures immediately the
++        // first time" behavior), so opening a panel is never delayed by
++        // this. Also bypassed on a demand-resume gap — see above.
++        // CLAUDE/local: no_self_capture perf, tile-based damage-gating,
++        // 2026-09-17. dirtyRegion is passed straight through to
++        // makeSelfCaptureBackgroundFB — empty means "full regen" (the
++        // !alreadyAllocated/resumedAfterGap cases below never compute
++        // `overlap` at all, so it stays empty), non-empty means "only
++        // this sub-region actually needs redrawing". This is the change
++        // that actually helps a near-fullscreen layer like Spotlight: its
++        // own bounding box used to make almost any damage anywhere count
++        // as "the whole thing changed"; now only the genuinely dirty
++        // sub-rect costs anything.
++        CRegion dirtyRegion;
++        if (alreadyAllocated && !resumedAfterGap) {
++            dirtyRegion = pMonitor->m_damage.current().copy().intersect(selfCaptureLayerBox(l));
++            if (dirtyRegion.empty())
++                continue;
++        }
++
++        makeSelfCaptureBackgroundFB(l, dirtyRegion);
++        l->m_lastSelfCaptureTime = NOW;
++    }
++
++    // Isolated layers: one shared render for the whole group, gated the
++    // same way as the individual path above (60Hz cap + damage-overlap),
++    // but checked against the GROUP's combined footprint and triggering
++    // ONE render that every member then points at — not one render each.
++    if (!selfCaptureIsolatedLayers.empty()) {
++        const auto hz                     = std::min(pMonitor->m_refreshRate > 1.f ? pMonitor->m_refreshRate : 60.f, 60.f);
++        const auto minSelfCaptureInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / hz));
++
++        bool       anyUnallocated       = false;
++        bool       anyDueForRetry       = false;
++        bool       anyResumedAfterGap   = false;
++        CRegion    combinedBox;
++        for (const auto& l : selfCaptureIsolatedLayers) {
++            // Stamped for every member regardless of allocation/due state —
++            // same reasoning as the overlapping-layer loop above.
++            if (demandResumedAfterGap(l))
++                anyResumedAfterGap = true;
++            const bool allocated = l->m_selfCaptureBackground && l->m_selfCaptureBackground->isAllocated();
++            if (!allocated)
++                anyUnallocated = true;
++            else if ((NOW - l->m_lastSelfCaptureTime) >= minSelfCaptureInterval)
++                anyDueForRetry = true;
++            combinedBox.add(selfCaptureLayerBox(l));
++        }
++
++        // Any not-yet-allocated member, OR any member whose demand just
++        // resumed after a gap (see demandResumedAfterGap above), forces an
++        // immediate shared render bypassing the damage check — matches the
++        // individual path's own "always captures immediately" treatment for
++        // both cases. Otherwise only bother checking damage once at least
++        // one member is actually due for a retry.
++        // CLAUDE/local: no_self_capture perf, tile-based damage-gating,
++        // 2026-09-17 — see the per-layer loop's own comment above. Empty
++        // dirtyRegion (the anyUnallocated/anyResumedAfterGap cases) means
++        // full regen; otherwise only the group's own genuinely dirty
++        // sub-rect gets redrawn.
++        bool    shouldRegen = anyUnallocated || anyResumedAfterGap;
++        CRegion dirtyRegion;
++        if (!shouldRegen && anyDueForRetry) {
++            dirtyRegion = pMonitor->m_damage.current().copy().intersect(combinedBox);
++            shouldRegen = !dirtyRegion.empty();
++        }
++
++        if (shouldRegen) {
++            const auto SHAREDFB = makeSharedSelfCaptureBackgroundFB(pMonitor, selfCaptureIsolatedLayers, dirtyRegion);
++            for (const auto& l : selfCaptureIsolatedLayers) {
++                l->m_selfCaptureBackground = SHAREDFB;
++                l->m_lastSelfCaptureTime   = NOW;
++            }
++        }
++    }
++
+     if (!shouldRenderMonitor(pMonitor) && damageBlinkCleanup == 0)
+         return;
+ 
+@@ -3168,6 +3516,364 @@ SP<IFramebuffer> IHyprRenderer::makeSnapshotFB(PHLLS pLayer) {
+     return PFRAMEBUFFER;
+ }
+ 
++// CLAUDE/local: no_self_capture perf, render-resolution downscale — TRIED
++// AND REVERTED 2026-09-14. Shrinking the framebuffer + explicitly
++// shrinking/restoring the viewport around beginFullFakeRender (full details
++// were here, see README's own "downscale" section for the writeup) built
++// clean, didn't break the cursor this time, but produced solid black glass
++// instead — some other assumption in renderWorkspace/the render-pass
++// pipeline about the target being monitor-sized wasn't accounted for, not
++// fully root-caused before reverting rather than keep guessing against a
++// live compositor. Reverted to the known-good full-resolution render below.
++// Revisit with a scratch/dev compositor instance to iterate on safely
++// instead of the user's real logged-in session, if attempted again.
++
++// CLAUDE/local: no_self_capture. Renders "what the monitor would look like if
++// pLayer didn't exist" into pLayer's own persistent framebuffer, reusing the
++// same beginFullFakeRender/renderWorkspace/endRender pattern makeSnapshotFB
++// above already uses for close-animation snapshots. Consumed by
++// ScreenshareFrame's blit in place of the layer's own self-reflecting content.
++// CLAUDE/local: no_self_capture perf, resolution downscale — attempt 3,
++// 2026-09-17. See the two reverted attempts above (broke the cursor;
++// produced solid black glass, never root-caused). New understanding this
++// attempt is based on, from reading this Hyprland version's own
++// beginRender/renderWorkspace and finding an existing, WORKING precedent
++// for "render at a smaller size than the monitor" in this same file (the
++// "BGTex scale" code, ~line 1305): `beginRender(..., simple=true)` (which
++// beginFullFakeRender always uses) already calls
++// `setProjectionType(fb->m_size)`, deriving the projection purely from the
++// framebuffer's own actual size — so simply allocating a smaller FB
++// already gets a correctly-scaled projection for free, no manual
++// projection-type juggling needed here (unlike BGTex scale, which runs
++// mid-frame and has to save/restore projection state around a temporary
++// detour — this is its own fully self-contained begin/end render, so
++// there's nothing to save/restore there). What's NOT handled automatically
++// anywhere in beginRenderInternal/beginFullFakeRenderInternal (confirmed
++// by reading both) is the actual GL viewport — the BGTex scale code has to
++// set it manually before its own detour and restore it after, and that's
++// exactly what this does too, via setViewport() directly (never touching
++// OpenGL.cpp's shared beginSimple — that's what broke the cursor in
++// attempt 1).
++// CLAUDE/local: no_self_capture perf, resolution downscale — attempt 4,
++// 2026-09-18. Attempts 1-3 (see the reverted sections above) all changed
++// the CONSUMER-FACING m_selfCaptureBackground's own size directly, which
++// meant every downstream consumer (ScreenshareFrame.cpp's blit, any size
++// check anywhere) had to be taught to compensate — real complexity, real
++// bug surface, and attempt 3 still broke (solid black glass) for a reason
++// that was never fully confirmed (a theory about CHyprOpenGLImpl::scissor()
++// hardcoding monitor size was proposed and built around, then DISPROVEN by
++// reading hyprutils' actual CBox::transform() source directly — for a
++// normal, non-rotated monitor it's a true no-op, so that specific theory
++// was wrong; the real cause of attempt 3's bug is still unconfirmed).
++//
++// This attempt takes a narrower-scoped approach specifically to avoid
++// depending on ever root-causing that: m_selfCaptureBackground (the
++// consumer-facing object) now ALWAYS stays at full monitor resolution —
++// nothing downstream needs to change at all, ScreenshareFrame.cpp's blit
++// math is back to trivial (no scale correction needed, source and dest
++// are always the same size). The actual smaller render happens into a
++// SEPARATE scratch framebuffer (m_selfCaptureScratch, see
++// LayerSurface.hpp), confined entirely to this function's own body, then
++// blitted (GL_LINEAR) up into the real, full-size m_selfCaptureBackground
++// before returning. If this still doesn't work, the blast radius is
++// contained to these ~40 lines, not spread across the consumption side too.
++//
++// Also deliberately simpler than attempt 3 in another way: the tile-based
++// per-region scissored partial regen was removed (see the reverted
++// sections above and pending_hyprland_selfcapture_perf.md memory) after
++// live testing showed it made no measurable GPU difference — scissoring
++// the OUTPUT doesn't reduce the actual render WORK, since renderWorkspace
++// still traverses/shades the whole scene regardless of scissor rect. The
++// real savings here come from rendering fewer total pixels (this scratch
++// FB is smaller) combined with the EXISTING, already-proven demand/damage
++// gating in renderMonitor() that decides whether to call this function at
++// all — not from a partial redraw within a single call.
++// CLAUDE/local: demand-gate fix confirmed working by the user at scale
++// 1.0 (2026-09-18) -- re-enabling the actual GPU-saving downscale now as
++// a separate, deliberate step on top of a confirmed-working capture
++// pipeline, rather than the blind guess every earlier attempt (1-4) was.
++// CLAUDE/local: ABANDONED 2026-09-18, reverted to 1.0 (fully inert -- the
++// scratch FB becomes monitor-sized, so the whole downscale/upscale blit
++// machinery below still runs but is a geometric no-op). This is the FOURTH
++// reverted attempt at this optimization; see hyprland-patch/README.md's
++// final section ("resolution downscale abandoned") for the complete
++// writeup of everything checked this round before giving up: viewport
++// (empirically verified correct at draw time via a live diagnostic,
++// 18000+ samples, zero mismatches), scissor (all 3 overloads confirmed to
++// delegate to one early-return, disabled throughout), the projection
++// matrix (verified against real hyprutils v0.14.2 source, confirmed
++// independent of the bound framebuffer's size), the blit math (verified
++// against real BLIT log entries from a live repro), and layer-grouping
++// consistency (verified via a dedicated log -- no isolated/overlapping
++// mismatch). None of it explained the artifact the user found in real
++// screenshots (a staircase of differently-reflowed terminal-width steps,
++// reproduced on a browser window too, not resize-related). Root cause
++// NOT FOUND. Do not re-attempt without new information -- if picking this
++// up again, start from the README section above, not from scratch.
++static constexpr float SELF_CAPTURE_RENDER_SCALE = 1.0f;
++
++SP<IFramebuffer> IHyprRenderer::makeSelfCaptureBackgroundFB(PHLLS pLayer, CRegion dirtyRegionMonitorSpace) {
++    const auto PMONITOR = pLayer->m_monitor.lock();
++
++    if (!PMONITOR || !PMONITOR->m_output || PMONITOR->m_pixelSize.x <= 0 || PMONITOR->m_pixelSize.y <= 0)
++        return nullptr;
++
++    if (!PMONITOR->m_activeWorkspace)
++        return nullptr;
++
++    // Consumer-facing — ALWAYS full monitor size. Every existing consumer
++    // (ScreenshareFrame.cpp) keeps working completely unchanged.
++    if (!pLayer->m_selfCaptureBackground)
++        pLayer->m_selfCaptureBackground = createFB("self-capture background");
++    const auto& PFRAMEBUFFER = pLayer->m_selfCaptureBackground;
++    if (PFRAMEBUFFER->m_size != PMONITOR->m_pixelSize)
++        PFRAMEBUFFER->alloc(PMONITOR->m_pixelSize.x, PMONITOR->m_pixelSize.y, DRM_FORMAT_ABGR8888);
++    PFRAMEBUFFER->setImageDescription(PMONITOR->workBufferImageDescription());
++
++    // Scratch — the actual, smaller render target. Same aspect ratio as
++    // the monitor by construction, required for renderWorkspace's own
++    // aspect-ratio guard to accept the geometry and apply the real scale
++    // instead of silently falling back to an unscaled 1:1 render.
++    const Vector2D SCRATCH_SIZE = (PMONITOR->m_pixelSize * SELF_CAPTURE_RENDER_SCALE).round();
++    if (!pLayer->m_selfCaptureScratch)
++        pLayer->m_selfCaptureScratch = createFB("self-capture scratch");
++    const auto& PSCRATCH = pLayer->m_selfCaptureScratch;
++    if (PSCRATCH->m_size != SCRATCH_SIZE)
++        PSCRATCH->alloc(SCRATCH_SIZE.x, SCRATCH_SIZE.y, DRM_FORMAT_ABGR8888);
++    PSCRATCH->setImageDescription(PMONITOR->workBufferImageDescription());
++
++    // CLAUDE/local: this function runs on every self-capture regeneration,
++    // which for a near-fullscreen layer (e.g. Spotlight) can be up to 60Hz
++    // -- the unthrottled [selfCapScale] logs below were confirmed (14136
++    // occurrences in one short test) to be the likely cause of reported
++    // stutter, since each is an unbuffered, flushed disk write via the
++    // dedicated debug sink. Throttled to once per 2s, same pattern as
++    // ScreenshareFrame.cpp's selfCapLogDetailNow.
++    static Time::steady_tp selfCapScaleLastLog{};
++    const auto             selfCapScaleNow      = Time::steadyNow();
++    const bool             selfCapScaleLogNow   = std::chrono::duration_cast<std::chrono::milliseconds>(selfCapScaleNow - selfCapScaleLastLog).count() > 2000;
++    if (selfCapScaleLogNow)
++        selfCapScaleLastLog = selfCapScaleNow;
++
++    if (selfCapScaleLogNow)
++        Log::logger->log(Log::DEBUG, "[selfCapScale] makeSelfCaptureBackgroundFB monitor={} monitorPx={}x{} scratchSize={}x{} scale={}", PMONITOR->m_name, PMONITOR->m_pixelSize.x,
++                          PMONITOR->m_pixelSize.y, SCRATCH_SIZE.x, SCRATCH_SIZE.y, SELF_CAPTURE_RENDER_SCALE);
++
++    // CLAUDE/local: root cause #4, same family as the scissor fix above --
++    // this "damage" region marks what's considered dirty/needing redraw
++    // for this fake render. Since the geometry-box fix means content now
++    // renders in FULL MONITOR coordinates (no more RMOD_TYPE_SCALE
++    // modifier), this damage region needs to cover the FULL monitor too,
++    // not just the smaller scratch FB's own dimensions -- otherwise
++    // anything positioned beyond SCRATCH_SIZE's own width/height (e.g. a
++    // window dragged toward the bottom-right of the screen) falls outside
++    // the "damaged" region and never gets drawn at all, progressively
++    // more of it missing the further it sits from the origin -- exactly
++    // the symptom reported after the scissor fix.
++    CRegion fakeDamage{0, 0, sc<int>(PMONITOR->m_pixelSize.x), sc<int>(PMONITOR->m_pixelSize.y)};
++    beginFullFakeRender(PMONITOR, fakeDamage, PSCRATCH);
++
++    // Not handled by beginRender/beginFullFakeRenderInternal for either FB
++    // size — set explicitly to match the scratch target, mirroring the
++    // existing "BGTex scale" precedent in this same file.
++    setViewport(0, 0, sc<int>(SCRATCH_SIZE.x), sc<int>(SCRATCH_SIZE.y));
++    if (selfCapScaleLogNow)
++        Log::logger->log(Log::DEBUG, "[selfCapScale] viewport set to scratch size {}x{}", SCRATCH_SIZE.x, SCRATCH_SIZE.y);
++
++    m_bRenderingSnapshot = true;
++
++    // CLAUDE/local: second bug, found 2026-09-18 right after the geometry
++    // fix -- a multi-window (e.g. split-screen) scene only reflected the
++    // active/recently-damaged window correctly, with an inactive window's
++    // own area showing bare wallpaper instead. CScreenshareFrame's own
++    // analogous "render the whole monitor into a capture" function
++    // (ScreenshareFrame.cpp) already sets this exact flag for this exact
++    // reason -- this fake render starts from a freshly cleared buffer and
++    // needs EVERYTHING redrawn regardless of the real display's own
++    // damage history, but the simplify/occlusion optimization (designed
++    // for normal incremental frame updates) can skip content it believes
++    // is already correctly on screen from a previous real frame. This
++    // function never set it, so an undamaged/inactive window could be
++    // silently culled from a snapshot that actually needs it drawn fresh.
++    m_renderData.noSimplify = true;
++
++    draw(CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
++    startRenderPass();
++
++    // the one and only place this is ever set true, and it's unset again a few
++    // lines down before endRender() — never visible to the real display render.
++    //
++    // CLAUDE/local: THE actual root cause, confirmed 2026-09-18 via direct
++    // glReadPixels pixel dump of this exact scratch FB (saved as a PPM
++    // and visually inspected) -- passing SCRATCH_SIZE here as the
++    // geometry box was WRONG and double-applies the downscale.
++    // renderWorkspace(pMonitor, ws, now, geometry) computes
++    // `scale = geometry.width / pMonitor->m_pixelSize.x` and pushes THAT
++    // as an RMOD_TYPE_SCALE render modifier for the WHOLE scene -- this
++    // is designed for rendering a full-monitor scene SMALLER, positioned
++    // within a box, INSIDE A FULL-MONITOR-SIZED OUTPUT (e.g. an expo/
++    // workspace-switch animation). It was never meant for a case where
++    // the OUTPUT FRAMEBUFFER ITSELF is already smaller than the monitor.
++    // Our scratch FB's own reduced size (1440x900 vs 2880x1800), combined
++    // with the viewport/projection already being set to that smaller
++    // size, ALREADY provides the entire downscale via plain GL
++    // rasterization -- passing SCRATCH_SIZE as geometry here applies a
++    // SECOND, redundant 0.5 scale on top, shrinking real content down to
++    // a quarter of the scratch FB's own area (confirmed visually: content
++    // confined to roughly the bottom-left quarter of the 1440x900 dump,
++    // not even half), leaving the rest as the transparent clear color --
++    // exactly the black/wrong-region symptom reported all session,
++    // reproducing identically in plain screenshots too (proven via the
++    // splice-disable bisection) since ANY consumer of this scratch-based
++    // snapshot inherits the same doubly-shrunk content. Fix: pass the
++    // FULL MONITOR size as geometry (internal scale becomes 1.0) -- the
++    // framebuffer's own smaller viewport alone does the real downscaling.
++    pLayer->m_hiddenForSelfCapture = true;
++    renderWorkspace(PMONITOR, PMONITOR->m_activeWorkspace, Time::steadyNow(), CBox{{0, 0}, PMONITOR->m_pixelSize});
++    pLayer->m_hiddenForSelfCapture = false;
++
++    endRender();
++
++    // Restore before returning — this render is fully self-contained
++    // (begin→draw→end above), but anything that runs after this call and
++    // before the next full beginRender() for a real frame (the cursor's
++    // own lighter-weight beginSimple path, specifically — see attempt 1's
++    // own regression) assumes the viewport is already correct rather than
++    // setting it itself.
++    setViewport(0, 0, sc<int>(PMONITOR->m_pixelSize.x), sc<int>(PMONITOR->m_pixelSize.y));
++    if (selfCapScaleLogNow)
++        Log::logger->log(Log::DEBUG, "[selfCapScale] viewport restored to monitor size {}x{}", PMONITOR->m_pixelSize.x, PMONITOR->m_pixelSize.y);
++
++    // The actual "downscale" trick: stretch the smaller scratch render up
++    // into the full-size consumer-facing framebuffer via a plain GL blit
++    // (GL_LINEAR does the upscale). Raw GL, not a Hyprland render pass —
++    // no RASSERT-guarded calls here, safe to run after endRender() (unlike
++    // scissor(), which asserted on an active render context — see the
++    // crash this exact mistake caused earlier tonight, in the now-removed
++    // tile-based scissor code above).
++    auto* pSrcFB  = dynamic_cast<Render::GL::CGLFramebuffer*>(PSCRATCH.get());
++    auto* pDestFB = dynamic_cast<Render::GL::CGLFramebuffer*>(PFRAMEBUFFER.get());
++    if (pSrcFB && pDestFB) {
++        Render::GL::g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, pSrcFB->getFBID());
++        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, pDestFB->getFBID());
++        glBlitFramebuffer(0, 0, sc<int>(SCRATCH_SIZE.x), sc<int>(SCRATCH_SIZE.y), 0, 0, sc<int>(PMONITOR->m_pixelSize.x), sc<int>(PMONITOR->m_pixelSize.y), GL_COLOR_BUFFER_BIT,
++                           GL_LINEAR);
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        if (selfCapScaleLogNow)
++            Log::logger->log(Log::DEBUG, "[selfCapScale] blitted scratch {}x{} -> background {}x{}", SCRATCH_SIZE.x, SCRATCH_SIZE.y, PMONITOR->m_pixelSize.x, PMONITOR->m_pixelSize.y);
++    } else
++        Log::logger->log(Log::ERR, "[selfCapScale] BUG: scratch/background dynamic_cast to CGLFramebuffer failed, snapshot not updated this call");
++
++    m_bRenderingSnapshot = false;
++    return PFRAMEBUFFER;
++}
++
++// CLAUDE/local: no_self_capture perf, grouped rendering. Same structure as
++// makeSelfCaptureBackgroundFB above, but hides EVERY layer in pLayers
++// simultaneously and returns ONE framebuffer for the caller to assign to
++// all of them — only correct when none of them geometrically overlap each
++// other (enforced by the caller, see renderMonitor's own overlap check
++// before this is ever invoked). See makeSelfCaptureBackgroundFB's own
++// comment for the full "attempt 4" scratch-FB downscale reasoning — same
++// technique here, just against the group's shared framebuffer instead of
++// one layer's own.
++SP<IFramebuffer> IHyprRenderer::makeSharedSelfCaptureBackgroundFB(PHLMONITOR pMonitor, const std::vector<PHLLS>& pLayers, CRegion dirtyRegionMonitorSpace) {
++    if (!pMonitor || !pMonitor->m_output || pMonitor->m_pixelSize.x <= 0 || pMonitor->m_pixelSize.y <= 0)
++        return nullptr;
++
++    if (!pMonitor->m_activeWorkspace)
++        return nullptr;
++
++    if (pLayers.empty())
++        return nullptr;
++
++    // Consumer-facing — ALWAYS full monitor size, reused across the group
++    // exactly as before (every member ends up pointing at this SAME
++    // object once the caller assigns it, which is what makes this
++    // "shared" rather than "the first member's own").
++    SP<IFramebuffer> framebuffer = pLayers.front()->m_selfCaptureBackground;
++    if (!framebuffer)
++        framebuffer = createFB("shared self-capture background");
++    if (framebuffer->m_size != pMonitor->m_pixelSize)
++        framebuffer->alloc(pMonitor->m_pixelSize.x, pMonitor->m_pixelSize.y, DRM_FORMAT_ABGR8888);
++    framebuffer->setImageDescription(pMonitor->workBufferImageDescription());
++
++    // Scratch — shared across the group the same way, but this object
++    // isn't returned to (or known by) the caller at all, so it has to be
++    // explicitly propagated to every member itself, unlike framebuffer
++    // above (which the caller assigns to every member after this
++    // function returns).
++    SP<IFramebuffer> scratch = pLayers.front()->m_selfCaptureScratch;
++    if (!scratch)
++        scratch = createFB("shared self-capture scratch");
++    const Vector2D SCRATCH_SIZE = (pMonitor->m_pixelSize * SELF_CAPTURE_RENDER_SCALE).round();
++    if (scratch->m_size != SCRATCH_SIZE)
++        scratch->alloc(SCRATCH_SIZE.x, SCRATCH_SIZE.y, DRM_FORMAT_ABGR8888);
++    scratch->setImageDescription(pMonitor->workBufferImageDescription());
++    for (const auto& l : pLayers)
++        l->m_selfCaptureScratch = scratch;
++
++    // CLAUDE/local: same stutter-fix throttle as makeSelfCaptureBackgroundFB
++    // above -- own static, since this is a separate function/call site.
++    static Time::steady_tp selfCapScaleLastLog{};
++    const auto             selfCapScaleNow    = Time::steadyNow();
++    const bool             selfCapScaleLogNow = std::chrono::duration_cast<std::chrono::milliseconds>(selfCapScaleNow - selfCapScaleLastLog).count() > 2000;
++    if (selfCapScaleLogNow)
++        selfCapScaleLastLog = selfCapScaleNow;
++
++    if (selfCapScaleLogNow)
++        Log::logger->log(Log::DEBUG, "[selfCapScale] makeSharedSelfCaptureBackgroundFB monitor={} members={} monitorPx={}x{} scratchSize={}x{}", pMonitor->m_name, pLayers.size(),
++                          pMonitor->m_pixelSize.x, pMonitor->m_pixelSize.y, SCRATCH_SIZE.x, SCRATCH_SIZE.y);
++
++    // CLAUDE/local: same damage-region fix as makeSelfCaptureBackgroundFB above.
++    CRegion fakeDamage{0, 0, sc<int>(pMonitor->m_pixelSize.x), sc<int>(pMonitor->m_pixelSize.y)};
++    beginFullFakeRender(pMonitor, fakeDamage, scratch);
++
++    setViewport(0, 0, sc<int>(SCRATCH_SIZE.x), sc<int>(SCRATCH_SIZE.y));
++
++    m_bRenderingSnapshot = true;
++    // CLAUDE/local: same noSimplify fix as makeSelfCaptureBackgroundFB above.
++    m_renderData.noSimplify = true;
++
++    draw(CClearPassElement::SClearData{CHyprColor(0, 0, 0, 0)});
++    startRenderPass();
++
++    // CLAUDE/local: same fix as makeSelfCaptureBackgroundFB above -- full
++    // monitor size as geometry (internal scale 1.0), not SCRATCH_SIZE,
++    // which double-applies the downscale. See that function's own comment
++    // for the full root-cause explanation (confirmed via direct pixel dump).
++    for (const auto& l : pLayers)
++        l->m_hiddenForSelfCapture = true;
++    renderWorkspace(pMonitor, pMonitor->m_activeWorkspace, Time::steadyNow(), CBox{{0, 0}, pMonitor->m_pixelSize});
++    for (const auto& l : pLayers)
++        l->m_hiddenForSelfCapture = false;
++
++    endRender();
++
++    setViewport(0, 0, sc<int>(pMonitor->m_pixelSize.x), sc<int>(pMonitor->m_pixelSize.y));
++    if (selfCapScaleLogNow)
++        Log::logger->log(Log::DEBUG, "[selfCapScale] shared viewport restored to monitor size {}x{}", pMonitor->m_pixelSize.x, pMonitor->m_pixelSize.y);
++
++    auto* pSrcFB  = dynamic_cast<Render::GL::CGLFramebuffer*>(scratch.get());
++    auto* pDestFB = dynamic_cast<Render::GL::CGLFramebuffer*>(framebuffer.get());
++    if (pSrcFB && pDestFB) {
++        Render::GL::g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, pSrcFB->getFBID());
++        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, pDestFB->getFBID());
++        glBlitFramebuffer(0, 0, sc<int>(SCRATCH_SIZE.x), sc<int>(SCRATCH_SIZE.y), 0, 0, sc<int>(pMonitor->m_pixelSize.x), sc<int>(pMonitor->m_pixelSize.y), GL_COLOR_BUFFER_BIT,
++                           GL_LINEAR);
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        if (selfCapScaleLogNow)
++            Log::logger->log(Log::DEBUG, "[selfCapScale] shared blitted scratch {}x{} -> background {}x{}", SCRATCH_SIZE.x, SCRATCH_SIZE.y, pMonitor->m_pixelSize.x,
++                              pMonitor->m_pixelSize.y);
++    } else
++        Log::logger->log(Log::ERR, "[selfCapScale] BUG: shared scratch/background dynamic_cast to CGLFramebuffer failed, snapshot not updated this call");
++
++    m_bRenderingSnapshot = false;
++    return framebuffer;
++}
++
+ SP<IFramebuffer> IHyprRenderer::makeSnapshotFB(WP<Desktop::View::CPopup> popup) {
+     // we trust the window is valid.
+     const auto PMONITOR = popup->getMonitor();
+diff --git a/src/render/Renderer.hpp b/src/render/Renderer.hpp
+index b4f5ab8a..1a89dcaf 100644
+--- a/src/render/Renderer.hpp
++++ b/src/render/Renderer.hpp
+@@ -7,6 +7,7 @@
+ #include <hyprutils/utils/ScopeGuard.hpp>
+ #include <list>
+ #include <optional>
++#include <vector>
+ #include "OpenGL.hpp"
+ #include "./SyncFDManager.hpp"
+ #include "./pass/Pass.hpp"
+@@ -99,6 +100,28 @@ namespace Render {
+         SP<IFramebuffer>                    makeSnapshotFB(PHLWINDOW);
+         SP<IFramebuffer>                    makeSnapshotFB(PHLLS);
+         SP<IFramebuffer>                    makeSnapshotFB(WP<Desktop::View::CPopup>);
++        // CLAUDE/local: no_self_capture perf, tile-based damage-gating,
++        // 2026-09-17. dirtyRegionMonitorSpace (in monitor pixel coordinates,
++        // same space as pMonitor->m_damage) is the exact set of pixels that
++        // actually need updating — empty means "nothing computed yet, do a
++        // full regen" (used for a brand new allocation or a demand-resume
++        // gap, see renderMonitor's own call sites). When non-empty, only
++        // that region's own bounding box gets cleared/redrawn (via a GL
++        // scissor scoped to it) — everything else in the framebuffer keeps
++        // its prior content untouched. This is what actually fixes
++        // Spotlight's cost: its near-fullscreen box used to force a full
++        // snapshot re-render on almost every real frame (any damage
++        // anywhere intersects such a large box) — now only the genuinely
++        // changed sub-region gets redrawn.
++        // By value, not const&: getExtents() below isn't a const method.
++        SP<IFramebuffer>                    makeSelfCaptureBackgroundFB(PHLLS, CRegion dirtyRegionMonitorSpace = {});
++        // CLAUDE/local: no_self_capture perf, grouped rendering. Same as
++        // above but hides every layer in the group simultaneously and
++        // returns ONE framebuffer for the caller to assign to all of them —
++        // only correct for layers that never geometrically overlap each
++        // other (see the call site in renderMonitor for the actual
++        // overlap check). dirtyRegionMonitorSpace: see makeSelfCaptureBackgroundFB above.
++        SP<IFramebuffer>                    makeSharedSelfCaptureBackgroundFB(PHLMONITOR, const std::vector<PHLLS>&, CRegion dirtyRegionMonitorSpace = {});
+         void                                renderFadeouts(PHLMONITOR monitor, Desktop::eFadeoutPlane plane, PHLWORKSPACE workspace = nullptr);
+         bool                                beginFullFakeRender(PHLMONITOR pMonitor, CRegion& damage, SP<IFramebuffer> fb);
+         bool                                beginRenderToBuffer(PHLMONITOR pMonitor, CRegion& damage, SP<IHLBuffer> buffer, bool simple = false);
