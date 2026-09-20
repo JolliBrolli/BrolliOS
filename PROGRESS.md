@@ -5,6 +5,102 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-19 — Liquid glass moved into a Hyprland PLUGIN; 16 W -> 7 W
+
+**Status:** the compositor-side approach works and is measured better. Full
+design, findings and gotchas live in `plugin/README.md`; this is the summary.
+
+### Done
+
+- **Proved a Hyprland plugin can do this at all**, with **zero Hyprland source
+  changes**. Builds against stock distro headers, loads into stock
+  `/usr/bin/Hyprland` via `hyprctl plugin load`, unloads in ~2s. Uses only
+  upstream interfaces: the `render.stage` event bus (`RENDER_POST_WINDOWS`),
+  a custom `IPassElement` (upstream provides `EK_CUSTOM` for this), and the
+  public `blurMainFramebuffer()` for the live mid-frame backdrop.
+- **No capture anywhere.** The compositor already holds "what is behind the
+  dock" mid-frame. No screencopy, no `no_self_capture`, no texture round-trip
+  into Quickshell.
+- **Targets real layer surfaces** by namespace (`quickshell:macDock`,
+  `quickshell:overview`), masked to their actual visible shape via the layer's
+  own texture — necessary because the dock's *layer* is 2880x178 (full screen
+  width) while the visible dock is a small centred pill.
+- **`shell-plugin/`**: a copy of `quickshell/` with all old glass removed.
+  `LiquidGlassBackground.qml` 990 -> 55 lines, both capture services gutted to
+  no-ops, Spotlight's 114-line shader chain deleted, `GlassTest` unregistered.
+  What remains is a translucent silhouette the plugin masks to — the same
+  split bea4dev's `LiquidIslandQS` uses with ShojiWM.
+- **Measured by user: ~16 W -> ~7 W peak**, with *no* optimisation applied and
+  with strictly more work being done (the old glass spent most of its time
+  frozen on a static wallpaper photo; this is live continuously).
+- **Repo put under git** (it had no history at all) and plugin sources moved
+  out of `/tmp`.
+
+### Done (later the same night)
+
+- **Region-scoped blur + shared backdrop**, both runtime-toggleable via a
+  plugin-registered `hyprctl glassopt [region|shared] [on|off]` so each can be
+  measured without a rebuild.
+- **Spotlight's dim scrim split into its own layer**, letting the overview
+  panel shrink to its content: blur region ~5.2M px -> ~500k px.
+- **Flicker on Spotlight expand: fixed, after three wrong attempts.** Root
+  cause measured, not guessed: any layer-shell resize produces frames where
+  the geometry runs ahead of the committed buffer and then falls back to it.
+  The client's requests were strictly monotonic the whole time. Quantising,
+  monotonic sizing and switching geometry source all failed; not resizing at
+  all is what works. Full writeup with the frame-tagged evidence in
+  `plugin/README.md`.
+- User measurement after region-scoping: **Spotlight ~4-5 W, dock ~3 W**
+  (from ~7 W peak, against ~16 W for the old capture pipeline).
+
+### Next
+
+Target is **1-2 W**. Remaining optimisations, measuring between each
+(handoff doc section 20A, one variable at a time):
+
+1. **Own the backdrop copy** — blit our own region and blur it at our own
+   radius. Currently the plugin borrows Hyprland's blur, so it inherits the
+   user's `decoration:blur` settings and renders a flat grey card when blur is
+   disabled (which it is, in the real config — the effect vanished after a
+   reboot for exactly this reason). Prerequisite for (3).
+2. Cheaper edge distance: analytic SDF for known rects, replacing the
+   24-tap-per-pixel march. Needs a geometry channel from the shell, since the
+   compositor sees the layer box rather than the panel rect.
+3. Half-resolution backdrop.
+
+Then port the real `liquidglasstest.frag` — which will raise the number, so
+bank the headroom first.
+
+Then port the real `liquidglasstest.frag` — which will *raise* the number, so
+bank the headroom first.
+
+### Blockers / open questions
+
+- **The silhouette mask is a convention, not an interface** (white = glass,
+  black scrim = ignore). Works; breaks for anything dark wanting glass. Real
+  fix: a glass surface should be its own layer sized to the panel, not a
+  full-screen layer carrying a screen-wide scrim. `desktopWidgets` will hit
+  this too.
+- **What does the 1-2 W target cover?** Static desktop should already be ~0
+  (no frame rendered, hook never fires). Unrelated-repaint frames and active
+  dragging are very different budgets.
+- `~/.config/quickshell/Brolli-Glass` currently points at `shell-plugin/`.
+  Restore with:
+  `ln -sfn ~/Projects/Brolli-Glass/quickshell ~/.config/quickshell/Brolli-Glass`
+
+### Gotchas hit
+
+See `plugin/README.md` for the full set with explanations. Short list: unload
+crashed the compositor (dangling vtables in queued pass elements); Hyprland's
+render target is top-down and a centred test rect hides the flip; the live
+config had `decoration:blur:enabled = false`, so the backdrop came back empty;
+the plugin version-hash guard mismatches spuriously by design; `hyprctl
+keyword` does not work on a Lua-configured Hyprland (`hyprctl eval`); running
+the shell copy under a new config name makes `keybinds.lua`'s liveness probe
+fail and fuzzel steals focus from Spotlight.
+
+---
+
 ## 2026-09-12 — Live-desktop recovery + workflow correction
 
 **Status:** live desktop was a mess of stacked, half-applied installer runs and

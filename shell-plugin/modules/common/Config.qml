@@ -1,0 +1,1002 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.modules.common.functions
+
+Singleton {
+    id: root
+    property string filePath: Directories.shellConfigPath
+    property alias options: configOptionsJsonAdapter
+    property bool ready: false
+    property int readWriteDelay: 50 // milliseconds
+    property bool blockWrites: false
+
+    function setNestedValue(nestedKey, value) {
+        let keys = nestedKey.split(".");
+        let obj = root.options;
+        let parents = [obj];
+
+        // Traverse and collect parent objects
+        for (let i = 0; i < keys.length - 1; ++i) {
+            if (!obj[keys[i]] || typeof obj[keys[i]] !== "object") {
+                obj[keys[i]] = {};
+            }
+            obj = obj[keys[i]];
+            parents.push(obj);
+        }
+
+        // Convert value to correct type using JSON.parse when safe
+        let convertedValue = value;
+        if (typeof value === "string") {
+            let trimmed = value.trim();
+            if (trimmed === "true" || trimmed === "false" || !isNaN(Number(trimmed))) {
+                try {
+                    convertedValue = JSON.parse(trimmed);
+                } catch (e) {
+                    convertedValue = value;
+                }
+            }
+        }
+
+        obj[keys[keys.length - 1]] = convertedValue;
+    }
+
+    Timer {
+        id: fileReloadTimer
+        interval: root.readWriteDelay
+        repeat: false
+        onTriggered: {
+            configFileView.reload()
+        }
+    }
+
+    Timer {
+        id: fileWriteTimer
+        interval: root.readWriteDelay
+        repeat: false
+        onTriggered: {
+            configFileView.writeAdapter()
+        }
+    }
+
+    FileView {
+        id: configFileView
+        path: root.filePath
+        watchChanges: true
+        blockWrites: root.blockWrites
+        onFileChanged: fileReloadTimer.restart()
+        onAdapterUpdated: fileWriteTimer.restart()
+        onLoaded: root.ready = true
+        onLoadFailed: error => {
+            if (error == FileViewError.FileNotFound) {
+                writeAdapter();
+            }
+        }
+
+        JsonAdapter {
+            id: configOptionsJsonAdapter
+
+            property string panelFamily: "ii" // "ii", "waffle"
+
+            property JsonObject policies: JsonObject {
+                property int ai: 1 // 0: No | 1: Yes | 2: Local
+                property int weeb: 1 // 0: No | 1: Open | 2: Closet
+            }
+
+            property JsonObject ai: JsonObject {
+                property string systemPrompt: "## Style\n- Use casual tone, don't be formal!\n- Always be brief and to the point, unless asked otherwise\n- Don't repeat the user's question\n- Be approachable: Avoid using overly complicated, domain-specific terms and provide analogies when asked to explain a concept\n\n## Context (ignore when irrelevant)\n- You are a helpful and inspiring sidebar assistant on a {DISTRO} Linux system\n- Desktop environment: {DE}\n- Current date & time: {DATETIME}\n- Focused app: {WINDOWCLASS}\n\n## Presentation\n- Use Markdown features in your response: \n  - **Bold** text to **highlight keywords** in your response\n  - **Split long information into small sections** with h2 headers and a relevant emoji at the start of it (for example `## 🐧 Linux`). Bullet points are preferred over long paragraphs, unless you're offering writing support or instructed otherwise by the user.\n- Asked to compare different options? You should firstly use a table to compare the main aspects, then elaborate or include relevant comments from online forums *after* the table. Make sure to provide a final recommendation for the user's use case!\n- Use LaTeX formatting for mathematical and scientific notations whenever appropriate. Enclose all LaTeX '$$' delimiters. NEVER generate LaTeX code in a latex block unless the user explicitly asks for it. DO NOT use LaTeX for regular documents (resumes, letters, essays, CVs, etc.).\n\nThanks!\n"
+                property string tool: "functions" // search, functions, or none
+                property list<var> extraModels: [
+                    {
+                        "api_format": "openai", // Most of the time you want "openai". Use "gemini" for Google's models
+                        "description": "This is a custom model. Edit the config to add more! | Anyway, this is DeepSeek R1 Distill LLaMA 70B",
+                        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+                        "homepage": "https://openrouter.ai/deepseek/deepseek-r1-distill-llama-70b:free", // Not mandatory
+                        "icon": "spark-symbolic", // Not mandatory
+                        "key_get_link": "https://openrouter.ai/settings/keys", // Not mandatory
+                        "key_id": "openrouter",
+                        "model": "deepseek/deepseek-r1-distill-llama-70b:free",
+                        "name": "Custom: DS R1 Dstl. LLaMA 70B",
+                        "requires_key": true
+                    }
+                ]
+            }
+
+            property JsonObject appearance: JsonObject {
+                property bool extraBackgroundTint: true
+                property int fakeScreenRounding: 2 // 0: None | 1: Always | 2: When not fullscreen
+                property JsonObject fonts: JsonObject {
+                    property string main: "Google Sans Flex"
+                    property string numbers: "Google Sans Flex"
+                    property string title: "Google Sans Flex"
+                    property string iconNerd: "JetBrainsMono Nerd Font"
+                    property string monospace: "JetBrainsMono Nerd Font"
+                    property string reading: "Readex Pro"
+                    // Display cut rather than the text cut — it is drawn large.
+                    property string serif: "Noto Serif Display"
+                    property string expressive: "Space Grotesk"
+                }
+                property JsonObject transparency: JsonObject {
+                    property bool enable: false
+                    property bool automatic: true
+                    property real backgroundTransparency: 0.11
+                    property real contentTransparency: 0.57
+                }
+                property JsonObject wallpaperTheming: JsonObject {
+                    property bool enableAppsAndShell: true
+                    property bool enableQtApps: true
+                    property bool enableTerminal: true
+                    property JsonObject terminalGenerationProps: JsonObject {
+                        property real harmony: 0.6
+                        property real harmonizeThreshold: 100
+                        property real termFgBoost: 0.35
+                        property bool forceDarkMode: false
+                    }
+                }
+                property JsonObject palette: JsonObject {
+                    property string type: "auto" // Allowed: auto, scheme-content, scheme-expressive, scheme-fidelity, scheme-fruit-salad, scheme-monochrome, scheme-neutral, scheme-rainbow, scheme-tonal-spot
+                    property string accentColor: ""
+                }
+                // Shared tuning for the liquid-glass refraction shader
+                // (liquidglasstest.frag) — every panel using that shader should
+                // read from here instead of hardcoding its own values, so they
+                // all change together. See modules/settings/LiquidGlassConfig.qml.
+                property JsonObject liquidGlass: JsonObject {
+                    // 2 = true circular arc, matching ii's own screen-corner
+                    // rounding (RoundCorner.qml's PathAngleArc, a plain
+                    // quarter-circle — not a squircle). Default is 20, a
+                    // squircle look, not the circular-arc minimum.
+                    property real power: 17.5
+                    // Corner radius cap, px — independent of panelSize.
+                    // Without a cap, the shape rule below is always "fully
+                    // round on the shorter axis," so a TALL box (e.g.
+                    // Spotlight's results list expanded) gets radius = half
+                    // its WIDTH — a huge corner that curves well into where
+                    // text sits. Effectively unbounded by default (bigger
+                    // than any real panel's own half-extents, so this is a
+                    // no-op = the old always-min behaviour) — surfaces that
+                    // need an actual small fixed radius (Spotlight) override
+                    // this locally instead of changing it here, since the
+                    // dock and GlassTest still want the old full-round pill.
+                    property real maxCornerRadius: 9999.0
+                    // Spotlight-specific override for the cap above — the
+                    // one surface here with enough text content that an
+                    // uncapped radius visibly curves into it once the
+                    // results list expands the box tall. Matches
+                    // Appearance.rounding.screenRounding (23, "large") —
+                    // ii's own real screen-corner radius (RoundCorner.qml,
+                    // under Settings > Quick bar & screen) — rather than an
+                    // arbitrary hand-picked number, so Spotlight's corner
+                    // reads as consistent with the rest of the desktop.
+                    // Not a live binding to that value (Config avoids
+                    // depending on Appearance to sidestep load-order risk);
+                    // update both by hand if screenRounding ever changes.
+                    property real spotlightMaxCornerRadius: 23.0
+                    property real fPower: 1.6 // refraction curve sharpness
+                    property real fa: 0.7
+                    property real fb: 1.1
+                    property real fc: 5.2
+                    property real fd: 6.9
+                    // Real liquid glass has a thin gap right at the edge
+                    // where content stays close to undistorted before the
+                    // bend actually kicks in. Confirmed the right idea, but
+                    // live tuning found 0 (no gap at all) closer to right
+                    // than any nonzero value — the "doesn't touch
+                    // immediately" read turned out to come mostly from
+                    // refractStrength below, not this. Left in and
+                    // shippable at 0 rather than removed, in case it's
+                    // useful again once refractStrength is dialed in.
+                    property real rimGap: 0.0
+                    // Multiplier on the refraction pull's actual depth —
+                    // pullScale (the "natural" unscaled depth) reads
+                    // noticeably weaker than the old length(p)-scaled
+                    // version almost everywhere, since pullScale is the
+                    // SMALLEST value length(p) ever took across the shape.
+                    // This restores that visual strength without
+                    // reintroducing length(p)'s real bug (the edge bulge
+                    // from pull varying along the edge itself).
+                    property real refractStrength: 2.0
+                    // Real macOS/iOS Liquid Glass has a thin, distinct rim
+                    // right at the boundary — not a painted stroke, but not
+                    // more refracted content either (that read as "just
+                    // another reflection", invisible over a flat colour
+                    // and prone to spreading a one-sided content change
+                    // across the whole ring). A plain brightness lift
+                    // toward white, applied AFTER the floor/tint mix —
+                    // consistently brighter than its surroundings
+                    // regardless of what's behind, like a reverse drop-
+                    // shadow. Kept subtle on purpose. 0 = no rim.
+                    property real rimHighlightStrength: 0.15
+                    property real rimHighlightWidth: 1.5 // fixed px, NOT relative to panel size
+                    // How far the diagonal light-direction effect (the top-
+                    // left/bottom-right corner pop + top-right/bottom-left
+                    // fade) reaches along the FLAT edges before settling
+                    // back to baseline — what reads as the length of the
+                    // bright/dim "lines" running along the border. 1.0 =
+                    // linear ramp (the original behaviour). Below 1.0 makes
+                    // the effect reach further along a flat edge before
+                    // fading out (longer lines); above 1.0 concentrates it
+                    // tighter right at the corner (shorter lines). Applied
+                    // as a power curve over the ramp fraction, so it can
+                    // only ever stretch/compress the existing ramp, never
+                    // change the corner/flat-edge baseline values themselves.
+                    property real rimDiagonalReach: 1.0
+                    // Chromatic aberration / dispersion, px — real glass
+                    // bends different wavelengths by slightly different
+                    // amounts, most visible at the same sharp rim above.
+                    // 0 = off. Lowered from 2.5 — at real text-stroke
+                    // widths (often 1-2px) that offset was wide enough to
+                    // render a fully separate, readable duplicate of each
+                    // letter instead of just fringing its edge in colour.
+                    property real chromaticAberration: 1.0
+                    property real blurPx: 1.11 // in-shader refraction sample blur, 0 = crisp
+                    // A SEPARATE thing from blurPx above: real "frosting"
+                    // strength, px, applied to the refracted sample before
+                    // the floor/tint mix — "liquid glass as the base,
+                    // frosting on top", not part of the refraction math
+                    // itself. 0 = no frosting.
+                    // CLAUDE/local, 2026-09-18: cranked to max per explicit
+                    // request ("multiply by 100x, call it a day") — the
+                    // shader's own frostAmount = clamp(frostBlur/10, 0, 1),
+                    // so anything >=10 is already the max, fully-frosted
+                    // look; picked 20 for headroom rather than a literal
+                    // 232 (2.32*100), since they're visually identical.
+                    property real frostBlur: 20.0
+                    // FrostedBackdrop.qml's exact recipe (the desktop
+                    // widgets' frosted-card material) — its own MultiEffect
+                    // uses saturation: 0.3, brightness: -0.05. There's no
+                    // grain/noise texture in that recipe at all; this
+                    // desaturate+darken pair over the existing floor/tint
+                    // mix IS what reads as a matte frosted material, not
+                    // more blur and not a noise texture.
+                    property real frostSaturation: 1.0 // 1 = full colour, 0 = grey
+                    property real frostDarken: 0.0
+                    // Matches FrostedBackdrop.qml's own proven default (the
+                    // desktop widgets' frosted-glass material) — that file's
+                    // own comment explains why a real floor value matters:
+                    // "Blur alone tracks whatever is behind it, so the card
+                    // goes pale over a sunlit patch of wallpaper and text
+                    // stops holding. A real macOS material has a fixed floor
+                    // under the blur." Paired with base being the theme's own
+                    // colLayer0 (see GlassTest/SearchWidget), not plain white.
+                    property real baseOpacity: 0.044 // luminance-floor mix strength
+                    // The floor's hard minimum — previously hardcoded in the
+                    // shader (MIN_FLOOR = 0.4), so baseOpacity alone could
+                    // never push the material below a permanent ~40% floor
+                    // blend no matter how low it was set. Turning this down
+                    // trades away the "never fully invisible" guarantee for
+                    // a crisper, more refraction-dominant look — less
+                    // permanently hazy/"jello", more like a real glass pane.
+                    property real minFloor: 0.4
+                    // Reacts to LOCAL contrast right where each pixel
+                    // samples, not just the panel's overall average
+                    // brightness — a busy photo (a black bike against
+                    // bright sky, say) averages to a middling luma that
+                    // never triggers a strong floor above, even though
+                    // there's a huge local contrast boundary right there
+                    // for text to land on. Pushes toward a fully opaque
+                    // floor wherever that local spread is high. 0 = old
+                    // luma-only behaviour.
+                    property real busynessStrength: 0.85
+                    property real pad: 50 // capture margin around the shape, px
+                    // This is the DARK-mode tint — black by default, deepens
+                    // the glass. Light mode ignores this entirely and always
+                    // uses white instead (see tintColor in GlassTest.qml /
+                    // SearchWidget.qml), the same way Apple's own Liquid
+                    // Glass and this shell's own text colours already flip
+                    // between light/dark automatically.
+                    property string tint: "#000000" // accent tint colour (hex), dark mode only
+                    property real tintStrength: 0.0 // tint mix strength (shader's tint.a)
+                    // Translucent-white "chip" overlays for individual
+                    // controls sitting on the glass (search bar icons, the
+                    // search box itself, the highlighted search result row)
+                    // — brightens whatever's under it rather than painting a
+                    // flat theme colour, so it reads as part of the glass
+                    // instead of a separate opaque button.
+                    property real chipOpacity: 0.048 // resting alpha
+                    property real chipOpacityHover: 0.158 // hovered/selected/focused alpha
+                }
+                // What every ResetButton (and "Reset all") in
+                // LiquidGlassConfig.qml actually resets liquidGlass back
+                // to — a separate, PERSISTED object rather than hardcoded
+                // literals, so "Set as default" can overwrite it with the
+                // current live values without needing a code change +
+                // rebuild every time the tuning settles somewhere new.
+                // Starts identical to liquidGlass's own schema defaults
+                // above; the two drift apart only once "Set as default" is
+                // actually used.
+                property JsonObject liquidGlassDefaults: JsonObject {
+                    property real power: 17.5
+                    property real maxCornerRadius: 9999.0
+                    property real spotlightMaxCornerRadius: 23.0
+                    property real fPower: 1.6
+                    property real fa: 0.7
+                    property real fb: 1.1
+                    property real fc: 5.2
+                    property real fd: 6.9
+                    property real rimGap: 0.0
+                    property real refractStrength: 2.0
+                    property real rimHighlightStrength: 0.15
+                    property real rimHighlightWidth: 1.5
+                    property real rimDiagonalReach: 1.0
+                    property real chromaticAberration: 1.0
+                    property real blurPx: 1.11
+                    property real frostBlur: 20.0
+                    property real frostSaturation: 1.0
+                    property real frostDarken: 0.0
+                    property real baseOpacity: 0.044
+                    property real minFloor: 0.4
+                    property real busynessStrength: 0.85
+                    property real pad: 50
+                    property string tint: "#000000"
+                    property real tintStrength: 0.0
+                    property real chipOpacity: 0.048
+                    property real chipOpacityHover: 0.158
+                }
+            }
+
+            property JsonObject audio: JsonObject {
+                // Values in %
+                property JsonObject protection: JsonObject {
+                    // Prevent sudden bangs
+                    property bool enable: false
+                    property real maxAllowedIncrease: 10
+                    property real maxAllowed: 99
+                }
+            }
+
+            property JsonObject apps: JsonObject {
+                property string bluetooth: "kcmshell6 kcm_bluetooth"
+                property string changePassword: "kitty -1 --hold=yes fish -i -c 'passwd'"
+                // Not xdg-open: on this machine the directory handler is a
+                // terminal, so "Home" opened a shell rather than a file manager.
+                property string fileManager: "dolphin"
+                property string network: "kcmshell6 kcm_networkmanagement"
+                property string manageUser: "kcmshell6 kcm_users"
+                property string networkEthernet: "kcmshell6 kcm_networkmanagement"
+                property string taskManager: "plasma-systemmonitor --page-name Processes"
+                property string terminal: "kitty -1" // This is only for shell actions
+                property string update: "kitty -1 --hold=yes fish -i -c 'pkexec pacman -Syu'"
+                property string volumeMixer: `~/.config/hypr/hyprland/scripts/launch_first_available.sh "pavucontrol-qt" "pavucontrol"`
+            }
+
+            property JsonObject background: JsonObject {
+                property JsonObject widgets: JsonObject {
+                    // Which monitor the widget board lives on. Empty means the
+                    // first screen; one board on three monitors would just be
+                    // three copies of itself.
+                    property string screenName: ""
+                    // "free"  — lands exactly where you drop it
+                    // "snap"  — magnets to screen margins, centres and the edges
+                    //           of other widgets, with a guide line while dragging
+                    // "grid"  — position AND size quantise to gridSize
+                    property string placementMode: "snap"
+                    property int snapThreshold: 12
+                    property int gridSize: 60
+                    property int screenMargin: 24
+
+                    property JsonObject clock: JsonObject {
+                        property bool enable: true
+                        property bool showOnlyWhenLocked: false
+                        property string placementStrategy: "leastBusy" // "free", "leastBusy", "mostBusy"
+                        property real x: 100
+                        property real y: 100
+                        property string style: "cookie"        // Options: "cookie", "digital"
+                        property string styleLocked: "cookie"  // Options: "cookie", "digital"
+                        property JsonObject cookie: JsonObject {
+                            property bool aiStyling: false
+                            property int sides: 14
+                            property string dialNumberStyle: "full"   // Options: "dots" , "numbers", "full" , "none"
+                            property string hourHandStyle: "fill"     // Options: "classic", "fill", "hollow", "hide"
+                            property string minuteHandStyle: "medium" // Options "classic", "thin", "medium", "bold", "hide"
+                            property string secondHandStyle: "dot"    // Options: "dot", "line", "classic", "hide"
+                            property string dateStyle: "bubble"       // Options: "border", "rect", "bubble" , "hide"
+                            property bool timeIndicators: true
+                            property bool hourMarks: false
+                            property bool dateInClock: true
+                            property bool constantlyRotate: false
+                            property bool useSineCookie: false
+                        }
+                        property JsonObject digital: JsonObject {
+                            property bool adaptiveAlignment: true
+                            property bool showDate: true
+                            property bool animateChange: true
+                            property bool vertical: false
+                            property JsonObject font: JsonObject {
+                                property string family: "Google Sans Flex"
+                                property real weight: 350
+                                property real width: 100
+                                property real size: 90
+                                property real roundness: 0
+                            }
+                        }
+                        property JsonObject quote: JsonObject {
+                            property bool enable: false
+                            property string text: ""
+                        }
+                    }
+                    property JsonObject weather: JsonObject {
+                        property bool enable: false
+                        property string placementStrategy: "free" // "free", "leastBusy", "mostBusy"
+                        property real x: 400
+                        property real y: 100
+                    }
+                    property JsonObject todo: JsonObject {
+                        property bool enable: true
+                        property string placementStrategy: "free" // "free", "leastBusy", "mostBusy"
+                        property real x: 1400
+                        property real y: 120
+                        property real width: 320
+                        // Height of the scrollable task area. Resizing vertically
+                        // changes how many rows are visible rather than the whole
+                        // card: the header, add-row and Completed section always
+                        // stay put, which is what makes the card feel fixed while
+                        // the list inside it grows.
+                        property real listHeight: 0     // 0 = fit content
+                        property real minWidth: 260
+                        property real maxWidth: 620
+                        property string listName: "Today"
+                        // Which monitor to show on. Empty means the first screen;
+                        // one list on three monitors would just be three copies.
+                        property string screenName: ""
+                        // Card material. Drafted at 5% / 10% / 62% against a wallpaper with both
+                        // near-black and blown-out regions; 10% was the only one legible in both.
+                        property real tintOpacity: 0.10
+                        // Luminance floor under the blur, so the card stays readable
+                        // over bright patches of wallpaper.
+                        property real baseOpacity: 0.42
+                        // Solid drops the wallpaper blur behind the card and leans on
+                        // the base layer instead. Still keeps a faint tint so it reads
+                        // as part of the wallpaper's palette, not a grey box.
+                        property bool solidMaterial: false
+                        property int blurRadius: 64
+                        property bool showCompleted: true
+                        property int maxVisibleTasks: 8
+                        // Duration presets offered when starting a task, in minutes.
+                        // A comma-separated STRING, not a list. A list-typed property
+                        // in this JsonObject serialises back out as `null`, and reading
+                        // that null in on the next launch hard-crashes the whole shell —
+                        // no QML error, just a dead process a second after
+                        // "Configuration Loaded". Strings round-trip reliably.
+                        property string durationPresets: "15,25,50"
+                        property int defaultDuration: 25
+                        // Generic vertical size driven by the resize grip. Falls
+                        // back to listHeight, which is what this used to be
+                        // called, so an existing config keeps its size.
+                        property real contentHeight: 0
+                    }
+
+                    // The desktop clock card. Distinct from `clock` above, which
+                    // is the big wallpaper clock drawn by Background.qml.
+                    property JsonObject clockCard: JsonObject {
+                        property bool enable: false
+                        property real x: 24
+                        property real y: 24
+                        property real width: 300
+                        property real contentHeight: 0
+                        // Zones offered, as a comma-separated STRING of IANA
+                        // names. A list-typed property in a JsonObject
+                        // serialises back out as `null`, and reading that null
+                        // on the next launch hard-crashes the whole shell — no
+                        // QML error, just a dead process a second after
+                        // "Configuration Loaded".
+                        property string timezones: "local"
+                        // Which of the above is currently on the face.
+                        property string activeTimezone: "local"
+                        property bool twelveHour: true
+                        // The time is the card's heading, so it gets a real
+                        // display size. Weight is the variable font's wght axis:
+                        // high-contrast serifs read better light when set large.
+                        property int timeSize: 76
+                        property int timeWeight: 300
+                        property bool showSeconds: false
+                        property bool showDate: true
+                        property real tintOpacity: 0.10
+                        property real baseOpacity: 0.42
+                        property bool solidMaterial: false
+                        property int blurRadius: 64
+                    }
+
+                    property JsonObject calendar: JsonObject {
+                        property bool enable: false
+                        property real x: 24
+                        property real y: 320
+                        property real width: 340
+                        property real contentHeight: 0
+                        // 0 = Sunday, 1 = Monday.
+                        property int firstDayOfWeek: 1
+                        property bool showWeekNumbers: false
+                        property real tintOpacity: 0.10
+                        property real baseOpacity: 0.42
+                        property bool solidMaterial: false
+                        property int blurRadius: 64
+                    }
+                }
+                property string wallpaperPath: ""
+                property string thumbnailPath: ""
+                property bool hideWhenFullscreen: true
+                property JsonObject parallax: JsonObject {
+                    property bool vertical: false
+                    property bool autoVertical: false
+                    property bool enableWorkspace: false
+                    property real workspaceZoom: 1.07 // Relative to wallpaper size
+                    property bool enableSidebar: false
+                    property real widgetsFactor: 1.2
+                }
+            }
+
+            property JsonObject bar: JsonObject {
+                property JsonObject autoHide: JsonObject {
+                    property bool enable: false
+                    property int hoverRegionWidth: 2
+                    property bool pushWindows: false
+                    property JsonObject showWhenPressingSuper: JsonObject {
+                        property bool enable: true
+                        property int delay: 140
+                    }
+                }
+                property bool bottom: false // Instead of top
+                property int cornerStyle: 0 // 0: Hug | 1: Float | 2: Plain rectangle
+                property bool floatStyleShadow: true // Show shadow behind bar when cornerStyle == 1 (Float)
+                property bool borderless: false // true for no grouping of items
+                // "scrim" fades to nothing by the bottom edge; "bar" is a flat
+                // translucent surface like the dock. Menus want "bar": an open
+                // menu's title needs a highlight that visually connects to the
+                // dropdown, and a highlight cannot sit consistently on a
+                // gradient that is 74% opaque at the top and 0% at the bottom.
+                property string menubarMaterial: "none"   // bar | scrim | none
+                property real menubarOpacity: 0.72
+                property string topLeftIcon: "spark" // Options: "distro" or any icon name in ~/.config/quickshell/ii/assets/icons
+                property bool showBackground: true
+                property bool verbose: true
+                property bool vertical: false
+                property JsonObject resources: JsonObject {
+                    property bool alwaysShowSwap: true
+                    property bool alwaysShowCpu: true
+                    property int memoryWarningThreshold: 95
+                    property int swapWarningThreshold: 85
+                    property int cpuWarningThreshold: 90
+                }
+                property list<string> screenList: [] // List of names, like "eDP-1", find out with 'hyprctl monitors' command
+                property JsonObject utilButtons: JsonObject {
+                    property bool showScreenSnip: true
+                    property bool showColorPicker: false
+                    property bool showMicToggle: false
+                    property bool showKeyboardToggle: true
+                    property bool showDarkModeToggle: true
+                    property bool showPerformanceProfileToggle: false
+                    property bool showScreenRecord: false
+                }
+                property JsonObject workspaces: JsonObject {
+                    property bool monochromeIcons: true
+                    property int shown: 10
+                    property bool showAppIcons: true
+                    property bool alwaysShowNumbers: false
+                    property int showNumberDelay: 300 // milliseconds
+                    property list<string> numberMap: ["1", "2"] // Characters to show instead of numbers on workspace indicator
+                    property bool useNerdFont: false
+                }
+                property JsonObject weather: JsonObject {
+                    property bool enable: false
+                    property bool enableGPS: true // gps based location
+                    property string city: "" // When 'enableGPS' is false
+                    property bool useUSCS: false // Instead of metric (SI) units
+                    property int fetchInterval: 10 // minutes
+                }
+                property JsonObject indicators: JsonObject {
+                    property JsonObject notifications: JsonObject {
+                        property bool showUnreadCount: false
+                    }
+                }
+                property JsonObject tooltips: JsonObject {
+                    property bool clickToShow: false
+                }
+            }
+
+            property JsonObject battery: JsonObject {
+                // Nothing on a plain Hyprland session changes the power profile when
+                // the charger comes out, so whatever it was last set to is what runs
+                // on battery. Left in "performance" that means the CPU holds high
+                // clocks and voltage while idle — measured here at 92C and roughly
+                // 45W, against 71C on balanced for the same 1.5% load.
+                property JsonObject autoProfile: JsonObject {
+                    property bool enable: true
+                    // Applied at startup too, not just on the transition. That is
+                    // the case that actually bites: a profile set days ago and
+                    // never reconsidered.
+                    property bool applyOnStart: true
+                    property string onBattery: "powerSaver"   // powerSaver | balanced | performance
+                    property string onAc: "balanced"
+                }
+                property int low: 20
+                property int critical: 5
+                property int full: 101
+                property bool automaticSuspend: true
+                property int suspend: 3
+                // Never idle (no lock, no screen off, no suspend) while running on AC power
+                property bool keepAwakeWhenPluggedIn: true
+            }
+
+            property JsonObject calendar: JsonObject {
+                property string locale: "en-GB"
+            }
+
+            property JsonObject cheatsheet: JsonObject {
+                // Use a nerdfont to see the icons
+                // 0: 󰖳  | 1: 󰌽 | 2: 󰘳 | 3:  | 4: 󰨡
+                // 5:  | 6:  | 7: 󰣇 | 8:  | 9: 
+                // 10:  | 11:  | 12:  | 13:  | 14: 󱄛
+                property string superKey: ""
+                property bool useMacSymbol: false
+                property bool splitButtons: false
+                property bool useMouseSymbol: false
+                property bool useFnSymbol: false
+                property JsonObject fontSize: JsonObject {
+                    property int key: Appearance.font.pixelSize.smaller
+                    property int comment: Appearance.font.pixelSize.smaller
+                }
+            }
+
+            property JsonObject conflictKiller: JsonObject {
+                property bool autoKillNotificationDaemons: false
+                property bool autoKillTrays: false
+            }
+
+            property JsonObject crosshair: JsonObject {
+                // Valorant crosshair format. Use https://www.vcrdb.net/builder
+                property string code: "0;P;d;1;0l;10;0o;2;1b;0"
+            }
+
+            property JsonObject dock: JsonObject {
+                property bool enable: false
+                property bool monochromeIcons: true
+                property real height: 60
+                property real hoverRegionHeight: 2
+                property bool pinnedOnStartup: false
+                property bool hoverToReveal: true // When false, only reveals on empty workspace
+                property list<string> pinnedApps: [ // IDs of pinned entries
+                    "org.kde.dolphin", "kitty",]
+                property list<string> ignoredAppRegexes: []
+                // macOS-style hover magnification. peak is the scale directly under
+                // the cursor; spread is the falloff radius in icon widths. A higher
+                // spread means more icons each moving a little rather than one icon
+                // moving a lot, which is most of what reads as "smooth".
+                // Use the from-scratch macOS dock instead of the original one.
+                property bool macStyleDock: true
+                // Reserve a strip at the bottom so maximised windows rest above the
+                // dock rather than sliding beneath it.
+                property bool reserveSpace: true
+                property JsonObject macStyle: JsonObject {
+                    property real iconSize: 62 // 1.2x the original 52 default
+                    // How much of what is behind shows through. This started at
+                    // 0.82, which reads as a dark slab rather than glass; macOS
+                    // sits far more open than that.
+                    property real opacity: 0.55
+                }
+                property JsonObject magnification: JsonObject {
+                    property bool enable: true
+                    property real peak: 1.54 // was 1.28, bumped another 1.2x
+                    property real spread: 2.9
+                }
+            }
+
+            // macOS-style hot corners. Every corner defaults to "none", which
+            // means it is not created at all — an inert catcher in the top
+            // corners would swallow menubar clicks.
+            // Actions: none | overview | search | notifications | sidebarLeft | lock
+            property JsonObject hotCorners: JsonObject {
+                property bool enable: true
+                property int size: 6
+                // Pointers cross corners on the way elsewhere all the time, so
+                // a corner has to be dwelled on rather than merely touched.
+                property int dwellMs: 260
+                property string topLeft: "none"
+                property string topRight: "none"
+                property string bottomLeft: "overview"
+                property string bottomRight: "none"
+            }
+
+            property JsonObject interactions: JsonObject {
+                property JsonObject scrolling: JsonObject {
+                    property bool fasterTouchpadScroll: false // Enable faster scrolling with touchpad
+                    property int mouseScrollDeltaThreshold: 120 // delta >= this then it gets detected as mouse scroll rather than touchpad
+                    property int mouseScrollFactor: 120
+                    property int touchpadScrollFactor: 450
+                }
+                property JsonObject deadPixelWorkaround: JsonObject { // Hyprland leaves out 1 pixel on the right for interactions
+                    property bool enable: false
+                }
+            }
+
+            property JsonObject language: JsonObject {
+                property string ui: "auto" // UI language. "auto" for system locale, or specific language code like "zh_CN", "en_US"
+                property JsonObject translator: JsonObject {
+                    property string engine: "auto" // Run `trans -list-engines` for available engines. auto should use google
+                    property string targetLanguage: "auto" // Run `trans -list-all` for available languages
+                    property string sourceLanguage: "auto"
+                }
+            }
+
+            property JsonObject launcher: JsonObject {
+                property list<string> pinnedApps: [ "org.kde.dolphin", "kitty", "cmake-gui"]
+            }
+
+            property JsonObject light: JsonObject {
+                property JsonObject night: JsonObject {
+                    property bool automatic: true
+                    property string from: "19:00" // Format: "HH:mm", 24-hour time
+                    property string to: "06:30"   // Format: "HH:mm", 24-hour time
+                    property int colorTemperature: 5000
+                }
+                property JsonObject antiFlashbang: JsonObject {
+                    property bool enable: false
+                }
+            }
+
+            property JsonObject lock: JsonObject {
+                property bool useHyprlock: false
+                property bool launchOnStartup: false
+                property JsonObject blur: JsonObject {
+                    property bool enable: true
+                    property real radius: 100
+                    property real extraZoom: 1.1
+                }
+                property bool centerClock: true
+                property bool showLockedText: true
+                property JsonObject security: JsonObject {
+                    property bool unlockKeyring: true
+                    property bool requirePasswordToPower: false
+                }
+                property bool materialShapeChars: true
+            }
+
+            property JsonObject media: JsonObject {
+                // Attempt to remove dupes (the aggregator playerctl one and browsers' native ones when there's plasma browser integration)
+                property bool filterDuplicatePlayers: true
+            }
+
+            property JsonObject networking: JsonObject {
+                property string userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            }
+
+            property JsonObject notifications: JsonObject {
+                property int timeout: 7000
+                property JsonObject monitor: JsonObject {
+                    property bool enable: false
+                    property string name: "" // Name of the monitor to show notifications on, like "eDP-1". Find out with 'hyprctl monitors' command
+                }
+            }
+
+            property JsonObject osd: JsonObject {
+                property int timeout: 1000
+            }
+
+            property JsonObject osk: JsonObject {
+                property string layout: "qwerty_full"
+                property bool pinnedOnStartup: false
+            }
+
+            property JsonObject overlay: JsonObject {
+                property bool openingZoomAnimation: true
+                property bool darkenScreen: true
+                property real clickthroughOpacity: 0.8
+                property JsonObject floatingImage: JsonObject {
+                    property string imageSource: "https://media.tenor.com/H5U5bJzj3oAAAAAi/kukuru.gif"
+                    property real scale: 0.5
+                }
+            }
+
+            property JsonObject overview: JsonObject {
+                property bool enable: true
+                property real scale: 0.18 // Relative to screen size
+                property real rows: 2
+                property real columns: 5
+                property bool orderRightLeft: false
+                property bool orderBottomUp: false
+                property bool centerIcons: true
+            }
+
+            property JsonObject regionSelector: JsonObject {
+                // Reopen the snip overlay with the previous selection already drawn.
+                // Enter/Space accepts it, dragging replaces it as usual.
+                property bool rememberLastRegion: true
+                property JsonObject targetRegions: JsonObject {
+                    property bool windows: true
+                    property bool layers: false
+                    property bool content: true
+                    property bool showLabel: false
+                    property real opacity: 0.3
+                    property real contentRegionOpacity: 0.8
+                    property int selectionPadding: 5
+                }
+                property JsonObject rect: JsonObject {
+                    property bool showAimLines: true
+                }
+                property JsonObject circle: JsonObject {
+                    property int strokeWidth: 6
+                    property int padding: 10
+                }
+                property JsonObject annotation: JsonObject {
+                    property bool useSatty: false
+                }
+            }
+
+            property JsonObject resources: JsonObject {
+                property int updateInterval: 3000
+                property int historyLength: 60
+            }
+
+            property JsonObject tray: JsonObject {
+                property bool monochromeIcons: true
+                property bool showItemId: false
+                property bool invertPinnedItems: true // Makes the below a whitelist for the tray and blacklist for the pinned area
+                property list<var> pinnedItems: [ "Fcitx" ]
+                property bool filterPassive: true
+            }
+
+            property JsonObject musicRecognition: JsonObject {
+                property int timeout: 16
+                property int interval: 4
+            }
+
+            property JsonObject search: JsonObject {
+                property int nonAppResultDelay: 30 // This prevents lagging when typing
+                property string engineBaseUrl: "https://www.google.com/search?q="
+                property list<string> excludedSites: ["quora.com", "facebook.com"]
+                property bool sloppy: false // Uses levenshtein distance based scoring instead of fuzzy sort. Very weird.
+                property JsonObject prefix: JsonObject {
+                    property bool showDefaultActionsWithoutPrefix: true
+                    property string action: "/"
+                    property string app: ">"
+                    property string clipboard: ";"
+                    property string emojis: ":"
+                    property string math: "="
+                    property string shellCommand: "$"
+                    property string webSearch: "?"
+                }
+                property JsonObject imageSearch: JsonObject {
+                    property string imageSearchEngineBaseUrl: "https://lens.google.com/uploadbyurl?url="
+                    property bool useCircleSelection: false
+                }
+            }
+
+            property JsonObject sidebar: JsonObject {
+                property bool keepRightSidebarLoaded: true
+                property JsonObject translator: JsonObject {
+                    property bool enable: false
+                    property int delay: 300 // Delay before sending request. Reduces (potential) rate limits and lag.
+                }
+                property JsonObject ai: JsonObject {
+                    property bool textFadeIn: false
+                }
+                property JsonObject booru: JsonObject {
+                    property bool allowNsfw: false
+                    property string defaultProvider: "yandere"
+                    property int limit: 20
+                    property JsonObject zerochan: JsonObject {
+                        property string username: "[unset]"
+                    }
+                }
+                property JsonObject cornerOpen: JsonObject {
+                    property bool enable: true
+                    property bool bottom: false
+                    property bool valueScroll: true
+                    property bool clickless: false
+                    property int cornerRegionWidth: 250
+                    property int cornerRegionHeight: 5
+                    property bool visualize: false
+                    property bool clicklessCornerEnd: true
+                    property int clicklessCornerVerticalOffset: 1
+                }
+
+                property JsonObject quickToggles: JsonObject {
+                    property string style: "android" // Options: classic, android
+                    property JsonObject android: JsonObject {
+                        property int columns: 5
+                        property list<var> toggles: [
+                            { "size": 2, "type": "network" },
+                            { "size": 2, "type": "bluetooth"  },
+                            { "size": 1, "type": "idleInhibitor" },
+                            { "size": 1, "type": "mic" },
+                            { "size": 2, "type": "audio" },
+                            { "size": 2, "type": "nightLight" },
+                            { "size": 2, "type": "acKeepAwake" }
+                        ]
+                    }
+                }
+
+                property JsonObject quickSliders: JsonObject {
+                    property bool enable: false
+                    property bool showMic: false
+                    property bool showVolume: true
+                    property bool showBrightness: true
+                }
+            }
+
+            property JsonObject screenRecord: JsonObject {
+                property string savePath: Directories.videos.replace("file://","") // strip "file://"
+            }
+
+            property JsonObject screenSnip: JsonObject {
+                property string savePath: "" // only copy to clipboard when empty
+            }
+
+            property JsonObject sounds: JsonObject {
+                property bool battery: false
+                property bool pomodoro: false
+                property bool focus: true
+                property string theme: "freedesktop"
+            }
+
+            property JsonObject time: JsonObject {
+                // https://doc.qt.io/qt-6/qtime.html#toString
+                property string format: "hh:mm"
+                property string shortDateFormat: "dd/MM"
+                property string dateWithYearFormat: "dd/MM/yyyy"
+                property string dateFormat: "ddd, dd/MM"
+                property JsonObject pomodoro: JsonObject {
+                    property int breakTime: 300
+                    property int cyclesBeforeLongBreak: 4
+                    property int focus: 1500
+                    property int longBreak: 900
+                }
+                property bool secondPrecision: false
+            }
+
+            property JsonObject updates: JsonObject {
+                property bool enableCheck: true
+                property int checkInterval: 120 // minutes
+                property int adviseUpdateThreshold: 75 // packages
+                property int stronglyAdviseUpdateThreshold: 200 // packages
+            }
+            
+            property JsonObject wallpaperSelector: JsonObject {
+                property bool useSystemFileDialog: false
+            }
+            
+            property JsonObject windows: JsonObject {
+                property bool showTitlebar: true // Client-side decoration for shell apps
+                property bool centerTitle: true
+            }
+
+            property JsonObject hacks: JsonObject {
+                property int arbitraryRaceConditionDelay: 20 // milliseconds
+            }
+
+            property JsonObject workSafety: JsonObject {
+                property JsonObject enable: JsonObject {
+                    property bool wallpaper: false
+                    property bool clipboard: false
+                }
+                property JsonObject triggerCondition: JsonObject {
+                    property list<string> networkNameKeywords: ["airport", "cafe", "college", "company", "eduroam", "free", "guest", "public", "school", "university"]
+                    property list<string> fileKeywords: ["anime", "booru", "ecchi", "hentai", "yande.re", "konachan", "breast", "nipples", "pussy", "nsfw", "spoiler", "girl"]
+                    property list<string> linkKeywords: ["hentai", "porn", "sukebei", "hitomi.la", "rule34", "gelbooru", "fanbox", "dlsite"]
+                }
+            }
+
+            property JsonObject waffles: JsonObject {
+                // Some spots are kinda janky/awkward. Setting the following to
+                // false will make (some) stuff also be like that for accuracy. 
+                // Example: the right-click menu of the Start button
+                property JsonObject tweaks: JsonObject {
+                    property bool switchHandlePositionFix: true
+                    property bool smootherMenuAnimations: true
+                    property bool smootherSearchBar: true
+                }
+                property JsonObject bar: JsonObject {
+                    property bool bottom: true
+                    property bool leftAlignApps: false
+                }
+                property JsonObject actionCenter: JsonObject {
+                    property list<string> toggles: [ "network", "bluetooth", "easyEffects", "powerProfile", "idleInhibitor", "nightLight", "darkMode", "antiFlashbang", "cloudflareWarp", "mic", "musicRecognition", "notifications", "onScreenKeyboard", "gameMode", "screenSnip", "colorPicker" ]
+                }
+                property JsonObject calendar: JsonObject {
+                    property bool force2CharDayOfWeek: true
+                }
+            }
+        }
+    }
+}
