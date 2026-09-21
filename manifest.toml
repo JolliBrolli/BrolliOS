@@ -177,7 +177,7 @@ post = "install/scripts/nautilus-glass-link.sh"
 [[artifact]]
 id   = "ii-config"
 src  = "config/illogical-impulse/config.json"
-dest = "~/.config/illogical-impulse/config.json"
+dest = "~/.config/brolli-glass/config.json"
 mode = "merge-json"
 keys = [
     "appearance.fonts",

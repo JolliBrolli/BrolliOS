@@ -343,6 +343,9 @@ Scope {
                     LiquidGlassBackground {
                         id: dockGlass
                         anchors.fill: parent
+                        // Tells the compositor glass plugin which layer this
+                        // panel lives in (matches dockWindow's own namespace).
+                        glassNamespace: "quickshell:macDock"
                         screen: dockWindow.screen
                         yOffset: container.windowScreenYOffset
                         staticWallpaper: !container.useLiveCapture

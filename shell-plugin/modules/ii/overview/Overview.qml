@@ -61,7 +61,15 @@ Scope {
         visible: GlobalStates.overviewOpen
 
         WlrLayershell.namespace: "quickshell:overview"
-        WlrLayershell.layer: WlrLayer.Top
+        // Overlay, not Top. The dim scrim (dimWindow, above) is on Top, and
+        // within ONE level Hyprland stacks layers by map order. Both windows map
+        // on the same event, and on a fresh open this one consistently mapped
+        // first -- so the scrim landed on top of Spotlight, glass and text
+        // together (measured: panel luminance 37.4 on first open vs 48.8 on a
+        // quick reopen, when the scrim was still mapped from its fade-out and
+        // only this window re-mapped). Different levels make the order
+        // independent of timing: Overlay always draws after Top.
+        WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: GlobalStates.overviewOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         color: "transparent"
         // This used to span the TRUE full monitor because SearchWidget's own

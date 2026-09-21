@@ -1,273 +1,262 @@
 # Brolli-Glass Hyprland plugin — compositor-side liquid glass
 
-A Hyprland **plugin** that renders the liquid-glass material inside the
-compositor, sampling the live frame directly instead of capturing the screen
-and feeding it back into Quickshell.
+A Hyprland **plugin** that renders the existing liquid-glass material inside
+the compositor, sampling the live frame directly instead of capturing the
+screen and feeding it back into Quickshell.
 
 **It modifies zero lines of Hyprland source.** It builds against the stock
-distro headers, loads into the stock `/usr/bin/Hyprland` with
-`hyprctl plugin load`, and unloads again in about two seconds with no restart.
-That is the whole point: it is additive and removable, which is what
-`Liquid_Glass_Hyprland_Performance_Handoff.md`'s safety rules (1, 2, 15) ask
-for, achieved more completely than that document expected.
+distro headers, loads into stock `/usr/bin/Hyprland` with
+`hyprctl plugin load`, and unloads in about two seconds with no restart. No
+`no_self_capture` patch, no `Hyprland-brolli` binary, no screencopy.
+
+**The plugin does not author the material.** Its job is purely the data path:
+it hands Joel's existing `liquidglasstest.frag` the same inputs the old QML
+pipeline used to build by screencopy. The look is unchanged — confirmed by eye
+against the original.
 
 ---
 
-## Why this exists
+## Measured cost
 
-The capture-based implementation (still intact in `quickshell/`, and the
-reference for what the material should look like) had to solve an awkward
-problem: Quickshell needed a picture of what was behind itself. That needed
-`no_self_capture` — a patched Hyprland that renders an extra, whole-scene
-copy per flagged layer, splices it into screencopy, ships it to Quickshell,
-which re-uploads, crops, blurs and refracts it. Measured cost: **~16 W**, with
-the raw capture alone accounting for roughly 40 of the ~45-49 percentage
-points of GPU load while Spotlight was open.
+Paired runs on the laptop, battery power, same action with and without the
+plugin, back to back. 20s averages of GPU package power
+(`/sys/class/drm/card1/device/hwmon/hwmon5/power1_average`). **Δ is the glass.**
 
-A compositor already has the picture. Mid-frame, after windows are drawn and
-before top-layer surfaces are, the framebuffer *is* "what is behind the dock".
-Nothing needs capturing at all.
+| scenario | with glass | without | **Δ GPU** | GPU busy |
+|---|---|---|---|---|
+| Idle, dock + widgets up | 3.37 W | 3.28 W | **+0.09 W** | 5.7% vs 5.0% |
+| Spotlight open, still | 3.48 W | 3.26 W | **+0.22 W** | 7.2% vs 5.8% |
+| Spotlight expanded, window dragged behind | 5.47 W | 4.96 W | **+0.51 W** | 28.6% vs 22.4% |
+| Window dragged behind the dock | 4.96 W | 4.69 W | **+0.27 W** | 21.1% vs 18.1% |
 
-First measurement of this approach: **~7 W peak**, with no optimisation of any
-kind applied yet (see "Known costs" below — the current code is close to the
-most expensive version possible). Target is 1-2 W.
+The worst case redrew the glass **216 times a second** (plugin's own draw
+counter), so the low figure is not the glass quietly not running. The old
+capture pipeline was ~16 W (historical measurement on the patched build; not
+re-run side by side). Target was 1–2 W for the glass itself.
 
-## How it works
+Caveats: single 20s samples, human drag speed — treat as ±0.2 W. Whole-system
+battery power was also recorded but its run-to-run drift is at least ±0.8 W
+(one pair came out negative), too noisy for sub-watt differences.
+
+**Why it is this cheap:** the old cost was never the shader. It was getting the
+pixels — a whole extra scene render per flagged layer, a screencopy round
+trip, and a Qt upload/crop/blur chain. Now the backdrop is a blit of a small
+region out of a frame the compositor has already rendered, the material runs
+only over the panel's own pixels, and a panel is only redrawn in frames where
+something behind it actually changed.
+
+---
+
+## Data path
 
 ```
-RENDER_POST_WINDOWS            (windows drawn, top/overlay layers not yet)
-   -> for each targeted layer surface
-        -> queue a custom IPassElement (ePassElementType EK_CUSTOM)
-   -> at draw():
-        blurMainFramebuffer()  the live mid-frame composite
-        + layer's own texture  as the silhouette
-        -> our GLSL            rounded shape, circular-lens refraction, rim
+per layer, immediately before Hyprland draws it  (renderLayer hook)
+   for each glass panel the shell registered on that layer:
+     damage gate    skip unless this frame's render damage touches the panel
+     capture        glBlitFramebuffer of panel + 48px padding, out of the
+                    framebuffer this frame is being composited into  -> source
+     hblur          Joel's liquidglasshblur.frag over the capture   -> sourceHBlur
+     material       Joel's liquidglasstest.frag, drawn across the panel
 ```
 
-Every piece of that is an interface upstream Hyprland already provides:
-
-| Need | Upstream API |
+| input the material expects | supplied by |
 |---|---|
-| A hook at the right point in the frame | `Event::bus()->m_events.render.stage`, `RENDER_POST_WINDOWS` (`SharedDefs.hpp`) |
-| Somewhere to put custom drawing | `IPassElement` + `EK_CUSTOM` (`render/pass/PassElement.hpp`) |
-| The live backdrop | `IHyprRenderer::blurMainFramebuffer()` (public) |
-| The layer list, geometry, namespace | `Desktop::layerState()->layers()`, `CLayerSurface` |
-| The layer's own pixels | `LS->wlSurface()->resource()->m_current.texture` |
+| `source` | the blit — sharp, no blur stage (see *No blur* below) |
+| `sourceHBlur` | Joel's own H-blur pass, run in the plugin |
+| `panelSize`, `texSize`, `pad` | the plugin, from the panel rect and capture size |
+| the other 21 look uniforms | the shell, via `hyprctl glassuniform` |
+| panel rects | the shell, via `hyprctl glassrect` |
 
-## Files
+### The material is ported, not rewritten
 
-- `src/glass3.cpp` — first working version. Fixed centred rectangle, proves a
-  plugin can run its own shader on the live backdrop.
-- `src/glass4.cpp` — current. Targets real layer surfaces by namespace, masks
-  to their actual visible shape.
-- `src/glass5.cpp` — `glass4` drawn at `RENDER_LAST_MOMENT` (over the layer
-  instead of under it). Kept as a diagnostic: it makes the material visible
-  even when the layer above is opaque.
+`src/port_shader.py` translates the project's Qt `.frag` files to GLES 3.00:
+`#version 440` → `#version 300 es`, Qt's std140 uniform block → individual
+uniforms, `layout(...)` decorations dropped, `qt_Opacity := 1.0`. **Shader
+bodies are copied verbatim.** The vertex shader supplies `qt_TexCoord0` with
+its Qt meaning (panel-local UV, 0..1), so `toTex()` and `sampleBlurred()` need
+no changes. Output goes to `src/generated/`, which the plugin loads from disk —
+tune the `.frag`, re-run the script, reload the plugin. No rebuild.
 
-Build:
+### Geometry and uniforms come from the shell
+
+The compositor only sees a layer's **box**, and that is not the glass: the
+dock's layer is the full 2880px-wide strip while its glass is a centred pill.
+The material draws its whole shape across whatever panel it is handed, so
+giving it the layer box drew one slab across the bottom of the screen.
+
+- `GlassRegion.qml` — attached to each glass item, sends its rect (relative to
+  the layer's own origin) plus a per-panel corner cap. Spotlight's 23px cap is
+  the only per-panel uniform the original material ever varied.
+- `GlassUniformBridge.qml` — sends the 21 look uniforms from
+  `Config.options.appearance.liquidGlass` and the theme. Several (`base`,
+  `textColor`, `tint`) are Material You colours derived in `Appearance.qml`;
+  re-deriving them in C++ would be re-authoring the material a layer down.
+
+The plugin applies uniforms by **introspecting its linked program**, so a
+uniform added to the `.frag` needs no plugin change, only that the shell sends
+it. The existing settings sliders drive the plugin live.
+
+### Ordering: per surface
+
+Glass is queued immediately before its own layer, via a function hook on
+`IHyprRenderer::renderLayer` — the same place Hyprland decides its own layer
+blur (`renderdata.blur = shouldBlur(pLayer)`). Hyprland has no event between
+individual layers; queuing at a render stage put all top-level glass beneath
+every top layer. The hook mirrors `renderLayer`'s early returns (so glass is
+never queued for a surface that then does not draw), skips the popups pass and
+the locked state, and always calls the original.
+
+If the symbol is missing or ambiguous after a Hyprland update, the plugin falls
+back to stage-based queuing (`RENDER_POST_WALLPAPER` for bottom layers,
+`RENDER_POST_WINDOWS` for top/overlay) instead of failing. `hyprctl glassopt`
+reports which is active.
+
+### Damage gating
+
+A panel is redrawn only in frames where the render damage already touches it.
+When it does, the whole padded panel is added to the **render** damage, so
+everything behind is repainted there before the capture reads it. This is the
+pattern Hyprland's own pass uses for live blur (`Pass.cpp`,
+`blurRegion.intersect(m_damage).expand(...)`), except the whole panel is added
+rather than a blur-radius margin, because the refraction pulls samples from
+across the panel.
+
+It is added to render damage only, never the damage ring — verified in
+`Renderer.cpp`/`DamageRing.cpp`: render damage goes to
+`m_output->state->addDamage()`, and `rotate()` only stores `m_current`. So it
+cannot feed itself. Changes that produce no screen damage (a uniform push, a
+rect arriving a frame late) damage the affected panels explicitly.
+
+### Shell ↔ plugin state is robust to either side restarting
+
+- **Ownership:** each shell process tags its rect ids with a session id and
+  sends `glassrect reset <session>` on startup, dropping rects left by a shell
+  that was killed (and so never sent its `remove`s).
+- **Resync:** a freshly loaded plugin holds nothing. It posts a
+  `glassplugin>>loaded` IPC event; the shell resends all rects and uniforms.
+
+---
+
+## The shell side
+
+`shell-plugin/` is a copy of `quickshell/` with the old glass removed:
+`LiquidGlassBackground.qml` reduced from 990 lines to a transparent item that
+hosts a `GlassRegion`, both capture services gutted to no-ops, Spotlight's
+shader chain deleted, `GlassTest` unregistered. No `ScreencopyView`, no
+`ShaderEffect`, no settle timers, no static-wallpaper fallback anywhere in the
+glass path.
+
+Nothing is drawn under the content — a fill would sit **on top of** the glass,
+since the plugin draws beneath the surface.
+
+Opted in: the dock, Spotlight, and the desktop widgets (bottom layer — their
+glass sits under any window covering them, not over it).
+
+---
+
+## Commands
+
+```bash
+hyprctl glassopt                    # state, draw counts per panel, registered panels
+hyprctl glassopt values             # every uniform value received from the shell
+hyprctl glassopt gate on|off        # damage gating (off = redraw every rendered frame)
+hyprctl glassrect <id> <ns> x y w h radius | <id> remove | reset <session>
+hyprctl glassuniform <name> <v> [v v v]
+```
+
+## Build
 
 ```bash
 cd plugin/src
+python3 port_shader.py          # after changing either .frag
 g++ -shared -fPIC --no-gnu-unique -std=c++26 -O2 -DWLR_USE_UNSTABLE \
     $(pkg-config --cflags hyprland pixman-1 libdrm) glass4.cpp -o glass4.so
 hyprctl plugin load "$PWD/glass4.so"
 ```
 
-The plugin is pinned to the exact Hyprland build (`__hyprland_api_get_hash()`),
-so it must be rebuilt after any Hyprland update. It will refuse to load
-otherwise, which is the correct behaviour.
+Pinned to the exact Hyprland build; rebuild after every update. **Never load a
+build made against stock headers into the patched `Hyprland-brolli` binary** —
+that patch changes the struct layouts the plugin is compiled against, and the
+failure mode is memory corruption, not a clean error.
 
-**Do not load a plugin built against stock headers into the patched
-`Hyprland-brolli` binary.** That patch adds data members to `LayerSurface.hpp`
-and changes `Renderer.hpp`; the struct layouts the plugin was compiled against
-no longer match, and the failure mode is memory corruption, not a clean error.
+---
 
-## The shell side
+## No blur
 
-This only works if the shell **stops drawing its own glass**. A layer that
-paints opaque pixels over its whole shape hides anything the compositor draws
-beneath it — confirmed directly: with the unmodified dock, the material was
-rendering correctly and was completely invisible.
+Decided 2026-09-20. The target reads as transparent and refractive, not
+frosted; the glass character comes from lensing at the edges. So the capture
+is sharp and there is no blur stage in the plugin. The material's own
+`blurPx`/`frostBlur` still apply through its built-in separable blur.
 
-`shell-plugin/` is a copy of `quickshell/` with all of the old glass removed:
-`LiquidGlassBackground.qml` reduced from 990 lines to 55, both capture
-services gutted to no-ops, Spotlight's 114-line shader chain deleted,
-`GlassTest` unregistered. No `ScreencopyView`, no `ShaderEffect`, no settle
-timers, no idle pulse, no static-wallpaper fallback anywhere in the glass path.
+An earlier attempt built a full H+V Gaussian into the plugin before checking
+what the material consumed — the material already blurs internally, so it
+blurred twice, and with 9 taps across a 20px radius it rendered as visible
+blocks. Removed.
 
-What remains is a **translucent white silhouette at alpha 0.14**. That is
-load-bearing, not decoration: it is the shape the plugin masks its material
-to. This mirrors bea4dev's `LiquidIslandQS`, which deliberately implements no
-refraction client-side and lets ShojiWM's compositor draw the material behind
-its silhouette.
+## Known gaps
 
-## Known problems
+- **Untested:** multi-monitor, a scaled display, lock/unlock, cursor over
+  glass. Needed before this replaces the real shell (handoff doc Rule 9).
+- A monitor with no workspace renders top/overlay layers without emitting
+  `RENDER_POST_WINDOWS`; only matters for the stage fallback.
+- **Resolution downscaling is not pursued.** `hyprctl glassopt scale` exists
+  (it shrinks the blit of an already-rendered frame, not the scene render that
+  failed four times in `hyprland-patch/README.md`) but has never been
+  validated visually, and the history there warrants treating it as unproven.
+- Rect updates are a process spawn each (`hyprctl`), throttled to one per 16ms.
+  No visible lag measured; if it ever appears, write to Hyprland's socket
+  directly instead.
 
-### The silhouette convention is a hack
-
-The mask test is not "is this pixel opaque". Spotlight's layer is **full
-screen** and carries a black dim scrim at opacity 0.35 over the entire
-display — *more* opaque than the 0.14 silhouette. No alpha threshold can
-separate them, so the plugin matches on unpremultiplied **brightness**
-instead: the shell paints silhouettes white and scrims black.
-
-The three cases, as composited:
-
-| | premultiplied rgb | alpha | unpremultiplied brightness |
-|---|---|---|---|
-| Scrim alone | 0.0 | 0.35 | **0.0** |
-| Spotlight panel (white 0.14 over the scrim) | 0.14 | 0.441 | **0.317** |
-| Dock (white 0.14, nothing behind) | 0.14 | 0.14 | **1.0** |
-
-Threshold sits at 0.2. Note the panel is *not* 1.0 — compositing over the
-scrim keeps its rgb but inherits the scrim's alpha, which drags the ratio
-down. An earlier 0.5 threshold passed the dock and rejected Spotlight for
-exactly this reason.
-
-This works, and it is still a convention rather than an interface. It breaks
-for anything dark that wants glass, or anything bright that does not.
-
-**The structural fix** is for a glass surface to be its own layer, sized to
-the panel, instead of a full-screen layer carrying both the panel and a
-screen-wide scrim — then the layer's own alpha simply *is* the shape, with
-nothing to disambiguate.
-
-**Done for Spotlight.** Its dim scrim now lives in its own full-screen layer
-(`quickshell:overviewDim`), letting the overview panel shrink to its content.
-The panel only spanned the monitor because the old capture cropped by this
-window's coordinates, a reason that died with the capture. Its blur region
-went from the whole display (~5.2M px) to the panel (~500k px), and the
-brightness test is no longer load-bearing there. The mask still uses
-brightness, since the dock's silhouette benefits from it and it costs nothing.
-
-`desktopWidgets` is still full-screen anchored and will hit the same wall.
-
-### Any layer-shell resize produces a visibly wrong frame
-
-This one cost several wrong attempts, so it is worth stating precisely.
-
-When a glass layer resizes, Hyprland advances the layer's geometry to the size
-it has just requested, then falls back to the size of the buffer the client
-has actually committed, until the client catches up. Frame-tagged measurement
-across one Spotlight expand:
-
-```
-frame=1413  box=512  tex=448     geometry ahead of the committed buffer
-frame=1414  box=448  tex=448     geometry drops to EXACTLY the texture size
-frame=1416  box=512  tex=512     client catches up
-
-frame=1419  box=640  tex=512
-frame=1420  box=512  tex=512     again, exactly the texture size
-frame=1421  box=576  tex=576
-```
-
-Every drop lands exactly on the committed texture's size. `snap=0` throughout
-and frame numbers strictly increase, so this is neither snapshot rendering nor
-the layer being visited twice in a frame.
-
-Crucially, the CLIENT's own requests were strictly monotonic over the same
-period (256, 320, 384, 448, 512, 576, 640, 704, 768 — measured on the QML
-side, never decreasing). **No client-side sizing discipline avoids this.**
-Three attempts tried and failed:
-
-1. Quantising the window size to a 64px step — `elementMove`'s easing
-   overshoots by a pixel or two, and near a bucket boundary that overshoot
-   promotes itself into a full 64px resize. Fewer, bigger jumps.
-2. Making the requested size monotonic (grow only, reset on close) — the
-   client stopped asking for smaller sizes; the compositor still reported
-   them, because the fallback is to the committed buffer, not to the request.
-3. Reading `position/size(GEOMETRIC_CURRENT)` instead of `m_geometry` to match
-   `renderLayer` exactly — measurement showed the two are identical on every
-   frame here, so this changed nothing. (It is still the correct source to
-   read, and is kept: it matters for a layer that genuinely animates.)
-
-**What actually works is not resizing.** Spotlight's window now has a floor at
-the search panel's maximum size, so no number of results resizes the surface;
-the content animates inside a fixed box, exactly as it did when the window
-spanned the monitor — just a small box now. The original never flickered for
-precisely this reason, which was the clue.
-
-Note the floor must include headroom. Computed exactly, it landed ON a step
-boundary (collapsedHeight 84 + list cap 600 + margins 20 = 704) while a
-completely full result list needs 705.45 — so the single case of a fully
-populated list still crossed by one step and still flashed, while shorter
-lists were clean. The floor now takes the next step up.
-
-Anything else that resizes will meet this: the dock (icon magnification), the
-desktop widgets, and a morphing island most of all.
-
-### Known costs (none of these are optimised yet)
-
-1. **The blur is full-screen, every frame.** `blurMainFramebuffer` is handed
-   the whole monitor as its damage region to serve a dock pill of roughly
-   1100x120. Hyprland's blur already honours a damage region and expands it by
-   the blur's own reach, so this should be the largest and cheapest win.
-2. **No skip when nothing changed behind the glass.** A fully idle desktop is
-   already free — Hyprland renders no frame, so the hook never fires. But any
-   frame rendered for an unrelated reason (clock tick, cursor) drags a full
-   screen blur with it.
-3. **One backdrop per element, not per monitor.** Dock plus Spotlight open is
-   two full-screen blurs per frame of the same content. `GlassCaptureService`
-   learned this exact lesson on the QML side, where per-surface captures took
-   idle GPU from ~32% to ~75-79%.
-4. **The distance march is per-pixel.** Up to 24 mask taps plus 4 gradient
-   taps per glass pixel, as a stand-in for the reference's jump-flood distance
-   field. For known rounded rectangles an analytic SDF is nearly free — but
-   the plugin does not know the pill's rect, only the layer's much larger box,
-   so that needs a geometry channel from the shell (a plugin-registered
-   `hyprctl` command would do it).
-5. **Full-resolution backdrop**, for something only ever shown blurred and
-   refracted.
-
-On (1) and (5), note carefully: this is **not** the resolution downscale that
-failed four times in `hyprland-patch/README.md`, and not the tile-based damage
-gating that measured zero win there. Both of those concerned a **full scene
-re-render**, where scissoring clips writes without reducing traversal or
-shading. Here the cost is a blur over an existing texture, where shrinking the
-region or the resolution removes real work. Different mechanism, different
-outcome.
-
-### The material is a stand-in
-
-`glass4.cpp`'s shader is about 60 lines: rounded-rect SDF, Aghajari circular
-lens refraction, specular rim. `quickshell/modules/common/widgets/glass/
-liquidglasstest.frag` is 607 lines and does chromatic aberration, the frost
-desaturate/darken recipe, the adaptive legibility floor, the superellipse
-squircle, tint and a diagonal light model.
-
-The 7 W figure therefore understates the final cost — porting the real
-material will add work (chromatic aberration alone is two more 9-tap blurred
-samples at the rim). Optimise first, then spend the headroom.
-
-Also worth knowing: the refraction currently uses the **circular lens**
-profile from the ShojiWM reference, which is not what the real shader does
-(a tuned exponential falloff via `fa`/`fb`/`fc`/`fd`). Porting the real
-material restores the existing look; which profile reads better then becomes
-an A/B that can actually be judged side by side.
+---
 
 ## Gotchas already paid for
 
 - **Unload crashed the compositor.** Queued pass elements have vtable pointers
   into the `.so`; `dlclose()` unmaps it and the next frame calls through a
-  dangling vtable. `PLUGIN_EXIT` must drop them first — upstream provides
-  `CRenderPass::removeAllOfType()` for exactly this. Crash was on *unload*,
-  not load.
-- **Hyprland's render target is top-down.** `gl_FragCoord.y == 0` is the top
-  of the screen. An initial version flipped the box and drew the dock's shape
-  at the top of the display. A vertically centred test rectangle hides this
-  perfectly, because it flips onto itself.
-- **`decoration:blur:enabled` was `false`** in the live config. Asking for a
-  blurred backdrop Hyprland never prepares returns an empty buffer — the
-  material rendered as a flat grey card. With `size 10, passes 3` it then
-  averaged the backdrop to mush. The plugin inheriting the user's blur config
-  is itself a design flaw; owning the backdrop copy fixes it.
-- **The version-hash guard fires spuriously.** `__hyprland_api_get_hash()`
-  returns the commit *with dependency versions appended*; `getHyprlandVersion()
-  .hash` returns the bare commit. Comparing them directly always mismatches.
-- **`hyprctl keyword` does not work on a Lua-configured Hyprland** — use
-  `hyprctl eval 'hl.config({...})'`.
-- **Running the shell copy under a different config name breaks keybinds.**
-  `keybinds.lua` probes liveness with `qs -c $qsConfig ipc call TEST_ALIVE`
-  and falls back to fuzzel when it fails, which steals focus from a Spotlight
-  that opened correctly. Point `~/.config/quickshell/Brolli-Glass` at the copy
-  instead of inventing a new config name.
+  dangling vtable. `PLUGIN_EXIT` must `removeAllOfType()` first.
+- **Hyprland's render target is top-down** — `gl_FragCoord.y == 0` is the top
+  of the screen. A vertically centred test rectangle hides a flip perfectly.
+- **Self-scheduling render loop.** Calling `damageBox()` every frame to keep
+  the capture fresh schedules the next frame, which calls it again: ~25% idle
+  GPU. Grow render damage instead; never create new damage from inside a frame.
+- **Swapchain self-capture.** Hyprland repairs reused buffers by age from the
+  damage ring; drawing glass without accounting for it lets the capture read
+  back our own glass from a few frames earlier.
+- **Any layer-shell resize produces wrong frames.** Hyprland advances the
+  geometry to the size it requested, then falls back to the committed buffer's
+  size until the client catches up — measured on both sides of the boundary,
+  with the client's requests strictly monotonic throughout. Quantising and
+  monotonic sizing both failed; **not resizing** works. Spotlight's window has
+  a floor at its maximum size, with one step of headroom (the exact figure
+  landed on a step boundary and a full result list crossed it).
+- **Layers on one level stack by map order.** Spotlight and its dim scrim
+  mapped on the same event; Spotlight consistently mapped first, so the scrim
+  covered it on every fresh open (panel luminance 37.4 vs 48.8). Different
+  levels make it timing-independent: Spotlight is on Overlay, the scrim on Top.
+- **`ii` wipes Brolli's settings.** Both shells shared
+  `~/.config/illogical-impulse/config.json`, and each rewrites it with only the
+  keys its own schema knows. Brolli now uses `~/.config/brolli-glass/`.
+- **Debounce vs throttle.** `Timer.restart()` on every change sends nothing
+  until changes stop — Spotlight's glass stayed collapsed through its whole
+  expand animation. `start()` only when idle.
+- **Ghost rects** from a killed shell drew the material twice in one spot, the
+  second pass capturing the first. Fixed by session ownership.
+- **Plugin version-hash guard mismatches spuriously**: `__hyprland_api_get_hash()`
+  appends dependency versions, `getHyprlandVersion().hash` is the bare commit.
+- **`hyprctl keyword` doesn't work on a Lua-configured Hyprland** — use
+  `hyprctl eval`. **`SHyprCtlCommand.exact` must be `false`** for a command
+  that takes arguments.
+- **`pkill -f <pattern>` from a shell matches its own command line** and kills
+  the shell running it. Match `/proc/<pid>/cmdline` exactly instead.
+- **The shell copy must run as `Brolli-Glass`**, not a new config name:
+  `keybinds.lua` probes `qs -c $qsConfig ipc call TEST_ALIVE` and falls back to
+  fuzzel when it fails, which steals focus from Spotlight.
+
+## Files
+
+- `src/glass4.cpp` — the plugin
+- `src/port_shader.py` — Qt `.frag` → GLES translator
+- `src/generated/` — its output, loaded at runtime
+- `src/glass3.cpp`, `src/glass5.cpp` — early spikes (fixed rectangle; draw-over
+  diagnostic), kept for history
+- `nested.lua` — minimal stock-Hyprland config for nested testing

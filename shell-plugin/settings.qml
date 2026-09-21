@@ -192,10 +192,10 @@ ApplicationWindow {
                         buttonText: justCopied ? Translation.tr("Path copied") : Translation.tr("Config file")
                         expanded: navRail.expanded
                         downAction: () => {
-                            Qt.openUrlExternally(`${Directories.config}/illogical-impulse/config.json`);
+                            Qt.openUrlExternally(`file://${Directories.shellConfigPath}`); // Brolli's own file, not ii's
                         }
                         altAction: () => {
-                            Quickshell.clipboardText = CF.FileUtils.trimFileProtocol(`${Directories.config}/illogical-impulse/config.json`);
+                            Quickshell.clipboardText = Directories.shellConfigPath;
                             fab.justCopied = true;
                             revertTextTimer.restart()
                         }

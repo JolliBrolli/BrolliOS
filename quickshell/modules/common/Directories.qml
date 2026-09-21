@@ -32,7 +32,14 @@ Singleton {
     property string latexOutput: FileUtils.trimFileProtocol(`${Directories.cache}/media/latex`)
     property string shellConfig: FileUtils.trimFileProtocol(`${Directories.config}/illogical-impulse`)
     property string shellConfigName: "config.json"
-    property string shellConfigPath: `${Directories.shellConfig}/${Directories.shellConfigName}`
+    // Brolli-Glass has its OWN config file, deliberately not shared with ii.
+    // Both shells used to read and write ~/.config/illogical-impulse/config.json,
+    // and each rewrites it with only the keys its own schema knows. Brolli's schema
+    // is a superset of ii's, so running ii silently deleted every Brolli-only key:
+    // the liquid-glass settings, desktop widgets, the mac dock, hot corners
+    // (2026-09-21, recovered from config.json.bak-rimgap). Separate files make
+    // that impossible. The directory above is unchanged; only the file moves.
+    property string shellConfigPath: FileUtils.trimFileProtocol(`${Directories.config}/brolli-glass/config.json`)
 	property string todoPath: FileUtils.trimFileProtocol(`${Directories.state}/user/todo.json`)
 	property string notesPath: FileUtils.trimFileProtocol(`${Directories.state}/user/notes.txt`)
 	property string conflictCachePath: FileUtils.trimFileProtocol(`${Directories.cache}/conflict-killer`)

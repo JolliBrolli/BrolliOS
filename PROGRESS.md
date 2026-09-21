@@ -5,6 +5,69 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-21 — Real material running in the plugin; glass costs +0.1–0.5 W
+
+**Status:** the plugin runs Joel's actual `liquidglasstest.frag` and the look
+matches the original. Measured cost of the glass itself is +0.09 W idle and
++0.51 W in the worst case tested, against a 1–2 W target. Everything lives in
+`shell-plugin/` + `plugin/`; the real `quickshell/` is untouched apart from the
+config split. Full design and gotchas in `plugin/README.md`.
+
+### Performance notebook (handoff doc section 20B)
+
+Commit `7e825b6`. Paired 20s runs, same action with and without the plugin,
+GPU package power. Laptop on battery.
+
+| scenario | with glass | without | Δ GPU | busy (with / without) | glass draws/s |
+|---|---|---|---|---|---|
+| idle, dock + widgets up | 3.37 W | 3.28 W | +0.09 W | 5.7 / 5.0% | ~0 |
+| Spotlight open, still | 3.48 W | 3.26 W | +0.22 W | 7.2 / 5.8% | — |
+| Spotlight expanded, window dragged behind | 5.47 W | 4.96 W | +0.51 W | 28.6 / 22.4% | 216 |
+| window dragged behind dock | 4.96 W | 4.69 W | +0.27 W | 21.1 / 18.1% | 146 |
+
+- Visual result: matches the original material (confirmed by eye).
+- Regressions: none observed; multi-monitor, scaled display, lock/unlock and
+  cursor-over-glass not yet tested.
+- Noise: single samples, human drag speed, ±0.2 W. Whole-system battery power
+  drifted ≥±0.8 W between runs and is not used for conclusions.
+- Not a side-by-side against the old pipeline (needs the patched session);
+  ~16 W is the historical figure.
+- Three other Hyprland plugins were loaded throughout (Hyprtasking,
+  dynamic-cursors, hyprgrass); constant across every pair, so they cancel.
+
+### Done
+
+- Plugin runs the real material: shaders translated by `port_shader.py`,
+  dialect only; panel rects and look uniforms pushed from the shell.
+- `ii` had been wiping Brolli's settings (shared config file, each shell writes
+  back only its own schema) — liquid glass, desktop widgets, dock, hot corners.
+  Recovered from backup; Brolli now has its own `~/.config/brolli-glass/`.
+- Desktop widgets get glass (bottom layer, queued under covering windows).
+- Idle render loop removed: ~25% idle GPU was the plugin's own per-frame
+  `damageBox()` scheduling the next frame. Replaced with render-damage gating.
+- Glass ordered per surface via a `renderLayer` hook, with a stage fallback.
+- Spotlight dimmed on every first open: layer map-order stacking with its
+  scrim, recorded and measured (panel luminance 37.4 vs 48.8). Fixed by
+  putting Spotlight on Overlay.
+- Spotlight expand flicker fixed by not resizing the surface during typing.
+
+### Next
+
+- Regression checks before this can become the real shell (Rule 9).
+- Compare the material's edge handling against ShojiWM's island-refract
+  shader, at Joel's request.
+- Eventually: fold `shell-plugin/` into `quickshell/` and retire the
+  `no_self_capture` patch and `Hyprland-brolli` binary.
+
+### Gotchas hit
+
+Recorded in `plugin/README.md`, including: self-scheduling damage loop;
+swapchain self-capture; layer-shell resize handshake; map-order stacking within
+one layer level; shared config between shells; debounce vs throttle; ghost
+rects from killed shells; `pkill -f` matching its own command line.
+
+---
+
 ## 2026-09-19 — Liquid glass moved into a Hyprland PLUGIN; 16 W -> 7 W
 
 **Status:** the compositor-side approach works and is measured better. Full

@@ -46,10 +46,18 @@ Item {
     readonly property bool liveCaptureActive: false
     readonly property bool glassReady: true
 
-    // The silhouette the compositor plugin masks to.
-    Rectangle {
-        anchors.fill: parent
-        radius: Math.min(Math.min(root.width, root.height) / 2, Math.max(root.cornerRadiusOverride, 1))
-        color: Qt.rgba(1, 1, 1, 0.14)
+    // Namespace of the layer surface this sits in. Empty = no glass sent,
+    // which is the case for any consumer that has not opted in yet.
+    property string glassNamespace: ""
+
+    // Nothing is drawn here any more. The compositor plugin renders the whole
+    // material — shape, refraction, rim, floor — behind this surface, so any
+    // fill would sit ON TOP of the glass. (An earlier version drew a white
+    // silhouette at alpha 0.14 for the plugin to mask against; the plugin now
+    // receives the rect directly, so the silhouette is gone.)
+    GlassRegion {
+        target: root
+        layerNamespace: root.glassNamespace
+        radius: root.cornerRadiusOverride
     }
 }

@@ -167,6 +167,10 @@ Item {
         anchors.fill: parent
         screen: widget.board?.screen ?? null
         cornerRadiusOverride: widget.cardRadius
+        // Opts this card into the compositor glass plugin. The widgets layer is
+        // WlrLayer.Bottom, which the plugin queues at RENDER_POST_WALLPAPER so
+        // the glass sits under any window covering the card, not over it.
+        glassNamespace: "quickshell:desktopWidgets"
         // Desktop widgets sit on WlrLayer.Bottom — anything actually in
         // front of one (a window) would occlude it entirely in the real
         // compositor output, so the only thing a widget can ever

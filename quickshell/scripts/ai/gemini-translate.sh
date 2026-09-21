@@ -9,7 +9,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 SHELL_CONFIG_DIR="$XDG_CONFIG_HOME/illogical-impulse"
-SHELL_CONFIG_FILE="${SHELL_CONFIG_DIR}/config.json"
+SHELL_CONFIG_FILE="${XDG_CONFIG_HOME}/brolli-glass/config.json"
 TRANSLATIONS_DIR="${SCRIPT_DIR}/../../translations"
 TRANSLATIONS_TARGET_DIR="${SHELL_CONFIG_DIR}/translations"
 SOURCE_LOCALE="en_US"

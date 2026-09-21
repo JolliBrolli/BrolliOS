@@ -129,10 +129,19 @@ Item { // Wrapper
         implicitWidth: columnLayout.implicitWidth
         implicitHeight: columnLayout.implicitHeight
         radius: searchBar.height / 2 + searchBar.verticalPadding
-        // Was "transparent" — the shader provided the fill. That shader is
-        // gone in this copy, so this rectangle IS the silhouette the
-        // compositor plugin masks its glass to.
-        color: Qt.rgba(1, 1, 1, 0.14)
+        // Transparent again: the compositor plugin renders the material
+        // behind this surface, so any fill here would sit on top of the glass.
+        color: "transparent"
+
+        // Where the plugin draws Spotlight's glass. radius carries the one
+        // per-panel difference the original shader had from the dock:
+        // Spotlight caps its corners (spotlightMaxCornerRadius) so a tall
+        // results list does not get a corner curving into its text.
+        GlassRegion {
+            target: searchWidgetContent
+            layerNamespace: "quickshell:overview"
+            radius: Config.options.appearance.liquidGlass.spotlightMaxCornerRadius
+        }
 
         Behavior on implicitHeight {
             id: searchHeightBehavior
