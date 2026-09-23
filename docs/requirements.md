@@ -34,14 +34,30 @@ If you already run end-4, skip it:
 ./install.sh --skip-base
 ```
 
-**Everything else** comes from this repo: the shell, three font families, the
-WhiteSur icon themes, the MatugenGlass theme, wallpapers, Hyprland keybinds and
-rules, and the terminal and launcher configs. The full list is on
+**Everything else** comes from this repo: the shell, the WhiteSur icon themes,
+the MatugenGlass theme, wallpapers, Hyprland keybinds and rules, and the
+terminal and launcher configs. The full list is on
 [What it installs](what-it-installs.md).
+
+## Fonts
+
+None are shipped — none of them may be redistributed. `install.sh` runs
+`install/scripts/fonts.sh`, which installs what is packaged and names what is
+not:
+
+| font | where it comes from |
+|---|---|
+| Google Sans Flex — the shell UI | the end-4 base already installs it |
+| SF Pro Display — GTK and system | AUR: `otf-san-francisco` |
+| Liga SF Mono — the terminal | AUR: `nerd-fonts-sf-mono-ligatures` |
+| PP Editorial New — serif only | free for personal use at pangrampangram.com; no package |
+
+Anything you put in `assets/fonts-local/` is installed as-is. That directory is
+gitignored, so your copies stay on your machine. A missing font is not fatal —
+fontconfig falls back and the desktop still runs.
 
 ## Optional extras
 
-- **Claude Code** — for the agent island. Enable the hooks with `--agent-hooks`.
 - **Zen browser** — gets matching traffic lights automatically if it is installed.
 - **hyprvoice + a Groq key** — for [voice dictation](voice-dictation.md).
 

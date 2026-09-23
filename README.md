@@ -107,6 +107,9 @@ Full design, the material's maths and every gotcha: **[`plugin/README.md`](plugi
   EndeavourOS, … — is the smoothest path.
 - **Quickshell** ≥ 0.2.1 (installed by the end-4 setup).
 - A C++ compiler and the **Hyprland headers**, to build the plugin.
+- **Fonts are not shipped** — none of them may be redistributed. The installer
+  pulls SF Pro Display and Liga SF Mono from the AUR; Google Sans Flex comes
+  with the end-4 base.
 
 Details in [docs/requirements.md](docs/requirements.md).
 
@@ -224,9 +227,11 @@ Its notch/Dynamic Island (whose interaction techniques were studied from
 [Hyprfabricated](https://github.com/tr1xem/hyprfabricated)) and its Claude-agent monitor were
 removed here — git history still has them.
 
-**Also bundled or required:** the [WhiteSur icon theme](https://github.com/vinceliuice/WhiteSur-icon-theme)
-(vinceliuice), Google Sans Flex, SF Pro Display and SF Mono, and optionally
-[hyprvoice](https://github.com/leonardotrapani/hyprvoice) (leonardotrapani) for dictation.
+**Also used:** the [WhiteSur icon theme](https://github.com/vinceliuice/WhiteSur-icon-theme)
+(vinceliuice), which is bundled; Google Sans Flex, SF Pro Display, Liga SF Mono and
+PP Editorial New, which are *not* — they are proprietary, so the installer fetches
+them instead; and optionally [hyprvoice](https://github.com/leonardotrapani/hyprvoice)
+(leonardotrapani) for dictation.
 
 ## License
 

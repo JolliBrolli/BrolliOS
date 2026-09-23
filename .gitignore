@@ -26,6 +26,11 @@ core.[0-9]*
 # ── Local, not shared ─────────────────────────────────────────────────
 .claude/settings.local.json
 
+# Your own font files. SF Pro, SF Mono, Google Sans Flex and PP Editorial New
+# are all proprietary and cannot be redistributed, so they are never committed;
+# install/scripts/fonts.sh installs whatever is here.
+assets/fonts-local/
+
 # ── Editor / OS noise ─────────────────────────────────────────────────
 .DS_Store
 *.swp

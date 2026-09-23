@@ -14,9 +14,8 @@ changing anything.
 
 | What | Where it goes | How | Profile |
 | --- | --- | --- | --- |
-| `shell` | `~/.config/quickshell/openagentisland` | symlink | island, full |
-| `hypr-qsconfig` | `~/.config/hypr/hyprland/variables.lua` | inject | island, full |
-| `fonts` | `~/.local/share/fonts` | copy | full |
+| `shell` | `~/.config/quickshell/BrolliOS` | symlink | shell, full |
+| `hypr-qsconfig` | `~/.config/hypr/hyprland/variables.lua` | inject | shell, full |
 | `icons` | `~/.local/share/icons` | extract | full |
 | `theme-matugenglass` | `~/.local/share/themes/MatugenGlass` | copy | full |
 | `wallpapers` | `~/Pictures/Wallpapers` | copy | full |
@@ -33,7 +32,7 @@ changing anything.
 | `foot` | `~/.config/foot` | copy | full |
 | `fuzzel` | `~/.config/fuzzel` | copy | full |
 | `nautilus-glass` | `~/.config/nautilus-glass` | copy | full |
-| `ii-config` | `~/.config/illogical-impulse/config.json` | merge-json | full |
+| `ii-config` | `~/.config/brollios/config.json` | merge-json | full |
 
 ## What each method means
 
@@ -55,7 +54,7 @@ Your shell config is mostly yours. These are the only paths the
 installer will write; anything else in the file — your wallpaper, your
 monitor layout, your preferences — is left exactly as it was.
 
-In `~/.config/illogical-impulse/config.json`:
+In `~/.config/brollios/config.json`:
 
 - `appearance.fonts`
 - `appearance.transparency`

@@ -42,17 +42,10 @@ profile = ["shell", "full"]
 # Points end-4 at this Quickshell config. Injected between markers rather than
 # copied, because variables.lua is end-4's file and their updater rewrites it.
 
-# ── fonts, icons, theme ───────────────────────────────────────────────
-
-[[artifact]]
-id      = "fonts"
-src     = "assets/fonts"
-dest    = "~/.local/share/fonts"
-mode    = "copy"
-post    = "fc-cache -f"
-# Three families, and only three: Google Sans Flex drives the shell UI, SF Pro
-# Display the GTK/system font, Liga SF Mono the terminal. Nothing else in the
-# rice references a font.
+# ── icons, theme ──────────────────────────────────────────────────────
+# No fonts here. SF Pro, SF Mono and PP Editorial New cannot be
+# redistributed, and Google Sans Flex comes with the end-4 base, so fonts are
+# fetched by install/scripts/fonts.sh rather than shipped as a row.
 
 [[artifact]]
 id   = "icons"

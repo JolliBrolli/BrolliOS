@@ -157,6 +157,19 @@ build_plugin() {
     fi
 }
 
+# Fonts are not shipped: SF Pro, SF Mono and PP Editorial New cannot be
+# redistributed, and Google Sans Flex arrives with the end-4 base. The script
+# fetches what is packaged and names the rest. Never fatal — fontconfig falls
+# back, and the desktop still runs.
+install_fonts() {
+    step "Fonts"
+    if (( DRY_RUN )); then
+        info "would run install/scripts/fonts.sh (AUR: otf-san-francisco, nerd-fonts-sf-mono-ligatures)"
+        return
+    fi
+    "$REPO_DIR/install/scripts/fonts.sh" || warn "some fonts are missing — the shell falls back"
+}
+
 install_base() {
     step "end-4 base"
     if base_present; then
@@ -208,6 +221,8 @@ main() {
     if (( SKIP_BASE )); then info "base skipped (--skip-base)"; else install_base; fi
 
     engine install --profile "$PROFILE"
+
+    install_fonts
 
     build_plugin
 
