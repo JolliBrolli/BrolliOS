@@ -25,8 +25,6 @@ Item {
     // Per-region adaptive text contrast (see AdaptiveGlassText.qml) — passed
     // down from TodoCard.qml's own glass instance.
     property var glassRoot: null
-    property var glassBackdropTexture: null
-    property bool glassContrastActive: true
     readonly property bool done: root.item?.done ?? false
     readonly property bool isRunning: FocusTimer.active && FocusTimer.taskId === (root.item?.id ?? "")
 
@@ -165,8 +163,6 @@ Item {
                 maximumLineCount: 1
                 font.strikeout: root.done
                 glassRoot: root.glassRoot
-                backdropTexture: root.glassBackdropTexture
-                contrastActive: root.glassContrastActive
             }
 
             // Remembered duration, shown only when the task has one.

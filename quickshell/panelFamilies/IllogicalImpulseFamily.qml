@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 
 import qs.modules.common
+import qs.modules.common.widgets.glass
 import qs.modules.ii.background
 import qs.modules.ii.bar
 import qs.modules.ii.cheatsheet
@@ -9,7 +10,6 @@ import qs.modules.ii.desktopIcons
 import qs.modules.ii.desktopWidgets
 import qs.modules.ii.dock
 import qs.modules.ii.focusTimer
-import qs.modules.ii.glassTest
 import qs.modules.ii.hotCorners
 import qs.modules.ii.lock
 import qs.modules.ii.macDock
@@ -31,6 +31,12 @@ import qs.modules.ii.verticalBar
 import qs.modules.ii.wallpaperSelector
 
 Scope {
+    // PLUGIN-TEST SHELL COPY: Quickshell creates singletons lazily, on first
+    // reference. Nothing else touches GlassUniformBridge, so without this it
+    // would never be instantiated and the Hyprland plugin would never receive
+    // the material's uniform values.
+    readonly property var glassUniformBridge: GlassUniformBridge
+
     // Brolli-Glass: full-width Bar disabled in favor of the macOS-style
     // Menubar. The Island/notch feature (IslandLeft/Right/Notch) has been
     // removed entirely — Menubar reserves its own top-strip space now.
@@ -43,8 +49,6 @@ Scope {
     PanelLoader { extraCondition: Config.options.dock.enable && !Config.options.dock.macStyleDock; component: Dock {} }
     PanelLoader { extraCondition: Config.options.dock.enable && Config.options.dock.macStyleDock; component: MacDock {} }
     PanelLoader { component: FocusOverlay {} }
-    // Throwaway liquid-glass test rig — toggle: qs -c Brolli-Glass ipc call glassTest toggle
-    PanelLoader { component: GlassTest {} }
     PanelLoader { component: HotCorners {} }
     PanelLoader { component: Lock {} }
     PanelLoader { component: MediaControls {} }

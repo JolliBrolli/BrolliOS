@@ -99,7 +99,7 @@ Item {
             StyledText {
                 text: `${root.viewYear}`
                 font.pixelSize: Appearance.font.pixelSize.large
-                color: Appearance.colors.colSubtext
+                color: IslandStyle.subFg
             }
             Item { Layout.fillWidth: true }
 
@@ -129,7 +129,7 @@ Item {
                     text: root.weekdayInitials[(index + root.firstDay) % 7]
                     font.pixelSize: Appearance.font.pixelSize.smallest
                     font.weight: Font.DemiBold
-                    color: Appearance.colors.colSubtext
+                    color: IslandStyle.subFg
                 }
             }
         }
@@ -139,7 +139,7 @@ Item {
             Layout.topMargin: 6
             Layout.bottomMargin: 2
             implicitHeight: 1
-            color: Appearance.m3colors.m3outlineVariant
+            color: IslandStyle.divider
         }
 
         GridLayout {
@@ -169,8 +169,8 @@ Item {
                         font.pixelSize: Appearance.font.pixelSize.smaller
                         font.weight: cell.modelData.isToday ? Font.DemiBold : Font.Normal
                         color: cell.modelData.isToday ? Appearance.colors.colOnPrimary
-                            : cell.modelData.inMonth ? Appearance.colors.colOnLayer0
-                            : Appearance.colors.colSubtext
+                            : cell.modelData.inMonth ? IslandStyle.fg
+                            : IslandStyle.subFg
                         opacity: cell.modelData.inMonth ? 1 : 0.45
                     }
                 }
@@ -188,13 +188,13 @@ Item {
         implicitHeight: 26
         radius: width / 2
         opacity: btn.active ? 1 : 0.32
-        color: btnArea.containsMouse && btn.active ? Appearance.colors.colLayer2Hover : "transparent"
+        color: btnArea.containsMouse && btn.active ? IslandStyle.hoverFill : "transparent"
 
         MaterialSymbol {
             anchors.centerIn: parent
             text: btn.symbol
             iconSize: 16
-            color: Appearance.colors.colOnLayer1
+            color: IslandStyle.fg
         }
         MouseArea {
             id: btnArea

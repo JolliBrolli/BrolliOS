@@ -68,7 +68,7 @@ ShellRoot {
         }
     }
 
-    // Live introspection: `qs -c Brolli-Glass ipc call debug guessIcon kitty`
+    // Live introspection: `qs -c BrolliOS ipc call debug guessIcon kitty`
     // (diagnose icon-resolution failures without restarting the shell)
     IpcHandler {
         target: "debug"

@@ -1,5 +1,13 @@
 -- User exec-once commands (survives dotfile updates)
 
+-- Brolli-Glass: the compositor plugin that draws the shell's liquid glass.
+-- Loaded from config, not from the shell, so the config reload that every
+-- plugin load triggers happens during startup, before anything is on screen.
+-- install.sh builds it to ~/brolli-glass.so; skipped if that is missing.
+if is_file_exists(HOME .. "/brolli-glass.so") then
+  hl.plugin.load(HOME .. "/brolli-glass.so")
+end
+
 hl.on("hyprland.start", function ()
     -- Vicinae launcher daemon — launched by Hyprland so it always has the
     -- live Wayland env (the shipped systemd unit needs graphical-session.target,

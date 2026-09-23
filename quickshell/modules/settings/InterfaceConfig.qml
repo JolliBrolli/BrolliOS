@@ -732,6 +732,14 @@ ContentPage {
             }
         }
         ConfigSwitch {
+            buttonIcon: "contrast"
+            text: Translation.tr("Darken the screen behind Spotlight")
+            checked: Config.options.overview.dimBackground
+            onCheckedChanged: {
+                Config.options.overview.dimBackground = checked;
+            }
+        }
+        ConfigSwitch {
             buttonIcon: "center_focus_strong"
             text: Translation.tr("Center icons")
             checked: Config.options.overview.centerIcons

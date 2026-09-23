@@ -17,7 +17,8 @@
 #   distro   reserved; empty means every distro
 #
 # Profiles:
-#   island   the notch and shell alone, for someone who already has a rice
+#   shell    the shell and its Hyprland glue alone, for someone who already
+#            has a rice they like
 #   full     the whole desktop
 
 # ── the shell ─────────────────────────────────────────────────────────
@@ -25,9 +26,9 @@
 [[artifact]]
 id      = "shell"
 src     = "quickshell"
-dest    = "~/.config/quickshell/Brolli-Glass"
+dest    = "~/.config/quickshell/BrolliOS"
 mode    = "symlink"
-profile = ["island", "full"]
+profile = ["shell", "full"]
 # quickshell/ stays at the REPO ROOT rather than moving under config/, which
 # would be tidier. The live symlink points here and tracks main, so moving the
 # directory would break the running desktop on the next pull. See the spec, §3.
@@ -37,7 +38,7 @@ id      = "hypr-qsconfig"
 src     = "install/blocks/hypr-qsconfig.lua"
 dest    = "~/.config/hypr/hyprland/variables.lua"
 mode    = "inject"
-profile = ["island", "full"]
+profile = ["shell", "full"]
 # Points end-4 at this Quickshell config. Injected between markers rather than
 # copied, because variables.lua is end-4's file and their updater rewrites it.
 
@@ -177,7 +178,7 @@ post = "install/scripts/nautilus-glass-link.sh"
 [[artifact]]
 id   = "ii-config"
 src  = "config/illogical-impulse/config.json"
-dest = "~/.config/brolli-glass/config.json"
+dest = "~/.config/brollios/config.json"
 mode = "merge-json"
 keys = [
     "appearance.fonts",

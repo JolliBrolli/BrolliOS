@@ -174,30 +174,6 @@ Singleton {
                     // depending on Appearance to sidestep load-order risk);
                     // update both by hand if screenRounding ever changes.
                     property real spotlightMaxCornerRadius: 23.0
-                    property real fPower: 1.6 // refraction curve sharpness
-                    property real fa: 0.7
-                    property real fb: 1.1
-                    property real fc: 5.2
-                    property real fd: 6.9
-                    // Real liquid glass has a thin gap right at the edge
-                    // where content stays close to undistorted before the
-                    // bend actually kicks in. Confirmed the right idea, but
-                    // live tuning found 0 (no gap at all) closer to right
-                    // than any nonzero value — the "doesn't touch
-                    // immediately" read turned out to come mostly from
-                    // refractStrength below, not this. Left in and
-                    // shippable at 0 rather than removed, in case it's
-                    // useful again once refractStrength is dialed in.
-                    property real rimGap: 0.0
-                    // Multiplier on the refraction pull's actual depth —
-                    // pullScale (the "natural" unscaled depth) reads
-                    // noticeably weaker than the old length(p)-scaled
-                    // version almost everywhere, since pullScale is the
-                    // SMALLEST value length(p) ever took across the shape.
-                    // This restores that visual strength without
-                    // reintroducing length(p)'s real bug (the edge bulge
-                    // from pull varying along the edge itself).
-                    property real refractStrength: 2.0
                     // Real macOS/iOS Liquid Glass has a thin, distinct rim
                     // right at the boundary — not a painted stroke, but not
                     // more refracted content either (that read as "just
@@ -223,64 +199,6 @@ Singleton {
                     // only ever stretch/compress the existing ramp, never
                     // change the corner/flat-edge baseline values themselves.
                     property real rimDiagonalReach: 1.0
-                    // Chromatic aberration / dispersion, px — real glass
-                    // bends different wavelengths by slightly different
-                    // amounts, most visible at the same sharp rim above.
-                    // 0 = off. Lowered from 2.5 — at real text-stroke
-                    // widths (often 1-2px) that offset was wide enough to
-                    // render a fully separate, readable duplicate of each
-                    // letter instead of just fringing its edge in colour.
-                    property real chromaticAberration: 1.0
-                    property real blurPx: 1.11 // in-shader refraction sample blur, 0 = crisp
-                    // A SEPARATE thing from blurPx above: real "frosting"
-                    // strength, px, applied to the refracted sample before
-                    // the floor/tint mix — "liquid glass as the base,
-                    // frosting on top", not part of the refraction math
-                    // itself. 0 = no frosting.
-                    // CLAUDE/local, 2026-09-18: cranked to max per explicit
-                    // request ("multiply by 100x, call it a day") — the
-                    // shader's own frostAmount = clamp(frostBlur/10, 0, 1),
-                    // so anything >=10 is already the max, fully-frosted
-                    // look; picked 20 for headroom rather than a literal
-                    // 232 (2.32*100), since they're visually identical.
-                    property real frostBlur: 20.0
-                    // FrostedBackdrop.qml's exact recipe (the desktop
-                    // widgets' frosted-card material) — its own MultiEffect
-                    // uses saturation: 0.3, brightness: -0.05. There's no
-                    // grain/noise texture in that recipe at all; this
-                    // desaturate+darken pair over the existing floor/tint
-                    // mix IS what reads as a matte frosted material, not
-                    // more blur and not a noise texture.
-                    property real frostSaturation: 1.0 // 1 = full colour, 0 = grey
-                    property real frostDarken: 0.0
-                    // Matches FrostedBackdrop.qml's own proven default (the
-                    // desktop widgets' frosted-glass material) — that file's
-                    // own comment explains why a real floor value matters:
-                    // "Blur alone tracks whatever is behind it, so the card
-                    // goes pale over a sunlit patch of wallpaper and text
-                    // stops holding. A real macOS material has a fixed floor
-                    // under the blur." Paired with base being the theme's own
-                    // colLayer0 (see GlassTest/SearchWidget), not plain white.
-                    property real baseOpacity: 0.044 // luminance-floor mix strength
-                    // The floor's hard minimum — previously hardcoded in the
-                    // shader (MIN_FLOOR = 0.4), so baseOpacity alone could
-                    // never push the material below a permanent ~40% floor
-                    // blend no matter how low it was set. Turning this down
-                    // trades away the "never fully invisible" guarantee for
-                    // a crisper, more refraction-dominant look — less
-                    // permanently hazy/"jello", more like a real glass pane.
-                    property real minFloor: 0.4
-                    // Reacts to LOCAL contrast right where each pixel
-                    // samples, not just the panel's overall average
-                    // brightness — a busy photo (a black bike against
-                    // bright sky, say) averages to a middling luma that
-                    // never triggers a strong floor above, even though
-                    // there's a huge local contrast boundary right there
-                    // for text to land on. Pushes toward a fully opaque
-                    // floor wherever that local spread is high. 0 = old
-                    // luma-only behaviour.
-                    property real busynessStrength: 0.85
-                    property real pad: 50 // capture margin around the shape, px
                     // This is the DARK-mode tint — black by default, deepens
                     // the glass. Light mode ignores this entirely and always
                     // uses white instead (see tintColor in GlassTest.qml /
@@ -297,6 +215,37 @@ Singleton {
                     // instead of a separate opaque button.
                     property real chipOpacity: 0.048 // resting alpha
                     property real chipOpacityHover: 0.158 // hovered/selected/focused alpha
+                    // Added to chip opacity as the Pasted lens squash works
+                    // (x squash x backdrop busyness), so chips stay visible.
+                    property real chipSquashBoost: 0.25
+                    // "aghajari" material: the pasted recreation, unchanged
+                    // except that its constants are these. Defaults = original.
+                    property real aghDepth: 0.3      // distortion band, fraction of the short side
+                    property real aghStrength: 1.0   // multiplier on the glassSize * 0.5 pull
+                    property real aghBlur: 1.2       // 5x5 sample spacing, px
+                    property real aghChroma: 3.0     // RGB split, px
+                    property real aghEdge: 0.02      // how fast the RGB split fades in from the edge
+                    property real aghTint: 0.9       // brightness multiplier
+                    // 0 = bend away from the centre POINT (the paste); 1 = from
+                    // a centre LINE along the long side, for long panels (dock)
+                    property real aghStretch: 0.0
+                    // Readability (per panel, see aghajari.gles.frag): how much
+                    // a busy backdrop's contrast is squashed, and how far the
+                    // glass is nudged away from its text colour. 0/0 = off.
+                    property real aghSquash: 0.5
+                    // Only acts when the backdrop nears the text's brightness.
+                    property real aghPush: 0.0
+                    // A faint light of the glass's own, so it reads as glass
+                    // (not a black hole) over dark content.
+                    property real aghBody: 0.06
+                    // Per-panel tint (any material). Same rule as `tint`: this
+                    // colour in dark mode, white in light mode; strength = mix.
+                    property string tintDock: "#000000"
+                    property real tintDockStrength: 0.0
+                    property string tintWidgets: "#000000"
+                    property real tintWidgetsStrength: 0.0
+                    property string tintSpotlight: "#000000"
+                    property real tintSpotlightStrength: 0.0
                 }
                 // What every ResetButton (and "Reset all") in
                 // LiquidGlassConfig.qml actually resets liquidGlass back
@@ -311,29 +260,30 @@ Singleton {
                     property real power: 17.5
                     property real maxCornerRadius: 9999.0
                     property real spotlightMaxCornerRadius: 23.0
-                    property real fPower: 1.6
-                    property real fa: 0.7
-                    property real fb: 1.1
-                    property real fc: 5.2
-                    property real fd: 6.9
-                    property real rimGap: 0.0
-                    property real refractStrength: 2.0
                     property real rimHighlightStrength: 0.15
                     property real rimHighlightWidth: 1.5
                     property real rimDiagonalReach: 1.0
-                    property real chromaticAberration: 1.0
-                    property real blurPx: 1.11
-                    property real frostBlur: 20.0
-                    property real frostSaturation: 1.0
-                    property real frostDarken: 0.0
-                    property real baseOpacity: 0.044
-                    property real minFloor: 0.4
-                    property real busynessStrength: 0.85
-                    property real pad: 50
                     property string tint: "#000000"
                     property real tintStrength: 0.0
                     property real chipOpacity: 0.048
                     property real chipOpacityHover: 0.158
+                    property real chipSquashBoost: 0.25
+                    property real aghDepth: 0.3
+                    property real aghStrength: 1.0
+                    property real aghBlur: 1.2
+                    property real aghChroma: 3.0
+                    property real aghEdge: 0.02
+                    property real aghTint: 0.9
+                    property real aghStretch: 0.0
+                    property real aghSquash: 0.5
+                    property real aghPush: 0.0
+                    property real aghBody: 0.06
+                    property string tintDock: "#000000"
+                    property real tintDockStrength: 0.0
+                    property string tintWidgets: "#000000"
+                    property real tintWidgetsStrength: 0.0
+                    property string tintSpotlight: "#000000"
+                    property real tintSpotlightStrength: 0.0
                 }
             }
 
@@ -796,6 +746,8 @@ Singleton {
                 property bool orderRightLeft: false
                 property bool orderBottomUp: false
                 property bool centerIcons: true
+                // Darken the screen behind Spotlight while it is open.
+                property bool dimBackground: true
             }
 
             property JsonObject regionSelector: JsonObject {

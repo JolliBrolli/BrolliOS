@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import qs
 import qs.services
 import qs.modules.common
+import qs.modules.common.widgets.glass
 import QtQuick
 import Quickshell
 
@@ -66,11 +67,33 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 radius: 16
-                color: IslandStyle.pillColor
-                border.width: IslandStyle.borderWidth
-                border.color: IslandStyle.pillBorder
+                // Liquid glass instead of the old solid black pill: the
+                // compositor plugin draws it under this popup (GlassRegion,
+                // "popup:" namespace = placed on the menubar layer's open
+                // popup). No fill or border here -- the glass has its own rim.
+                color: "transparent"
                 implicitWidth: (contentLoader.item ? contentLoader.item.implicitWidth : 0) + root.padding * 2
                 implicitHeight: (contentLoader.item ? contentLoader.item.implicitHeight : 0) + root.padding * 2
+
+                GlassRegion {
+                    target: bg
+                    // Only while shown: on close the glass goes at once instead
+                    // of lingering through the fade-out and unload delay.
+                    layerNamespace: root.effectiveShow ? "popup:quickshell:menubar" : ""
+                    radius: bg.radius
+                    darkText: popupSample.light
+                }
+                GlassSample {
+                    id: popupSample
+                    target: bg
+                    layerNamespace: root.effectiveShow ? "popup:quickshell:menubar" : ""
+                }
+                Binding {
+                    target: IslandStyle
+                    property: "adaptiveText"
+                    value: popupSample.textColor
+                    when: root.effectiveShow && popupSample.ready
+                }
 
                 Loader {
                     id: contentLoader

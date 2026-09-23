@@ -127,8 +127,6 @@ DesktopWidget {
                     font.weight: Font.DemiBold
                     color: Appearance.colors.colPrimary
                     glassRoot: root.glassBackground
-                    backdropTexture: root.glassBackground.currentBackdropTexture
-                    contrastActive: root.glassBackground.liveCaptureActive
                 }
                 AdaptiveGlassText {
                     text: `${root.viewYear}`
@@ -139,8 +137,6 @@ DesktopWidget {
                     font.weight: Font.Normal
                     color: Appearance.colors.colSubtext
                     glassRoot: root.glassBackground
-                    backdropTexture: root.glassBackground.currentBackdropTexture
-                    contrastActive: root.glassBackground.liveCaptureActive
                 }
             }
 
@@ -250,8 +246,6 @@ DesktopWidget {
                         // above, which is what a fixed-background pill
                         // actually needs.
                         glassRoot: cell.modelData.isToday ? null : root.glassBackground
-                        backdropTexture: root.glassBackground.currentBackdropTexture
-                        contrastActive: root.glassBackground.liveCaptureActive
                     }
                 }
             }

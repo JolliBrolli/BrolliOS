@@ -31,11 +31,10 @@ Scope {
             right: true
             bottom: true
         }
-        // Open BELOW the floating islands (island strip ≈ 4px margin + 32px pill)
-        // so the right island stays clickable to toggle the sidebar closed.
-        margins {
-            top: 44
-        }
+        // No top margin: this dates from the floating-island strip, which is
+        // gone. The menubar reserves its own strip (menubarReserve) and
+        // Hyprland places this below it already -- the extra 44px just sat it
+        // lower than the left sidebar.
 
         onVisibleChanged: {
             if (visible) {

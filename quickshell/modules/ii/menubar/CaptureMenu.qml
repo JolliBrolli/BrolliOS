@@ -51,12 +51,12 @@ Item {
         MenuRow {
             symbol: "videocam"
             label: Translation.tr("Record Region")
-            onTriggered: { Quickshell.execDetached([`${Directories.config}/quickshell/Brolli-Glass/scripts/videos/record.sh`]); root.requestClose(); }
+            onTriggered: { Quickshell.execDetached([`${Directories.config}/quickshell/BrolliOS/scripts/videos/record.sh`]); root.requestClose(); }
         }
         MenuRow {
             symbol: "screen_record"
             label: Translation.tr("Record Screen")
-            onTriggered: { Quickshell.execDetached([`${Directories.config}/quickshell/Brolli-Glass/scripts/videos/record.sh`, "--fullscreen"]); root.requestClose(); }
+            onTriggered: { Quickshell.execDetached([`${Directories.config}/quickshell/BrolliOS/scripts/videos/record.sh`, "--fullscreen"]); root.requestClose(); }
         }
         MenuSeparator {}
         MenuRow {
@@ -76,7 +76,7 @@ Item {
         Layout.topMargin: 4
         Layout.bottomMargin: 3
         implicitHeight: 1
-        color: Appearance.m3colors.m3outlineVariant
+        color: IslandStyle.divider
     }
 
     component MenuRow: MouseArea {
@@ -97,7 +97,7 @@ Item {
             anchors.leftMargin: 2
             anchors.rightMargin: 2
             radius: Appearance.rounding.verysmall
-            color: row.containsMouse ? Qt.rgba(1, 1, 1, 0.075) : "transparent"
+            color: row.containsMouse ? IslandStyle.hoverFill : "transparent"
             // Slower than elementMoveFast: a highlight that snaps draws the eye
             // to the transition rather than to the row.
             Behavior on color {
@@ -114,20 +114,20 @@ Item {
             MaterialSymbol {
                 text: row.symbol
                 iconSize: 17
-                color: Appearance.colors.colOnLayer1
+                color: IslandStyle.fg
             }
             StyledText {
                 Layout.fillWidth: true
                 text: row.label
                 font.pixelSize: Appearance.font.pixelSize.smaller
-                color: Appearance.colors.colOnLayer1
+                color: IslandStyle.fg
                 elide: Text.ElideRight
             }
             StyledText {
                 visible: row.detail.length > 0
                 text: row.detail
                 font.pixelSize: Appearance.font.pixelSize.smallest
-                color: Appearance.colors.colSubtext
+                color: IslandStyle.subFg
             }
         }
     }

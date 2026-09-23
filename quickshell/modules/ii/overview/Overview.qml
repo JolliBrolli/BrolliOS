@@ -15,6 +15,44 @@ Scope {
     id: overviewScope
     property bool dontAutoCancelSearch: false
 
+    // PLUGIN-TEST SHELL COPY: the dim scrim used to be a Rectangle filling the
+    // main overview panel, which is why that panel had to span the whole
+    // monitor. That forced the compositor glass plugin to treat a full-screen
+    // box as Spotlight's shape: its blur region became the entire display
+    // (~5.2M px) to serve a panel of a few hundred thousand, and the panel's
+    // silhouette could only be told apart from the scrim by colour.
+    //
+    // Splitting the scrim into its own layer lets the panel shrink to its
+    // content. Declared first so it stacks below the panel; masked to an
+    // empty region so it takes no input, exactly like the Rectangle did.
+    PanelWindow {
+        id: dimWindow
+        visible: (GlobalStates.overviewOpen && Config.options.overview.dimBackground) || dimScrim.opacity > 0
+        WlrLayershell.namespace: "quickshell:overviewDim"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        mask: Region {}
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        Rectangle {
+            id: dimScrim
+            anchors.fill: parent
+            color: "black"
+            opacity: GlobalStates.overviewOpen && Config.options.overview.dimBackground ? 0.35 : 0.0
+            visible: opacity > 0
+            Behavior on opacity {
+                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+            }
+        }
+    }
+
     PanelWindow {
         id: panelWindow
         property string searchingText: ""
@@ -23,31 +61,54 @@ Scope {
         visible: GlobalStates.overviewOpen
 
         WlrLayershell.namespace: "quickshell:overview"
-        WlrLayershell.layer: WlrLayer.Top
+        // Overlay, not Top. The dim scrim (dimWindow, above) is on Top, and
+        // within ONE level Hyprland stacks layers by map order. Both windows map
+        // on the same event, and on a fresh open this one consistently mapped
+        // first -- so the scrim landed on top of Spotlight, glass and text
+        // together (measured: panel luminance 37.4 on first open vs 48.8 on a
+        // quick reopen, when the scrim was still mapped from its fade-out and
+        // only this window re-mapped). Different levels make the order
+        // independent of timing: Overlay always draws after Top.
+        WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: GlobalStates.overviewOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         color: "transparent"
-        // Must span the TRUE full monitor (real global (0,0)) — SearchWidget's
-        // liquid-glass background captures the whole screen and crops by this
-        // window's own coordinates, so without this an exclusive-zone panel
-        // (e.g. the menubar) pushing this surface's local origin down would
-        // misalign the crop. Same fix as GlassTest/Background.
+        // This used to span the TRUE full monitor because SearchWidget's own
+        // liquid-glass background captured the whole screen and cropped by
+        // this window's coordinates. That capture no longer exists — the
+        // compositor plugin supplies the backdrop — so the window can size to
+        // its content, which is what makes the plugin's blur region small.
         exclusionMode: ExclusionMode.Ignore
 
         mask: Region {
             item: GlobalStates.overviewOpen ? columnLayout : null
         }
 
+        // Top-anchored only: layer-shell centres an unanchored axis, so this
+        // sits top-centre at implicitWidth/implicitHeight (columnLayout's own
+        // size, set below) instead of covering the display.
+        //
+        // The vertical placement has to come from the SCREEN, not from this
+        // window. columnLayout used to position itself with
+        // `topMargin: (parent.height - collapsedHeight) / 2`, which read the
+        // window's height — fine while the window WAS the screen. Once the
+        // window sizes to its content that became circular (window height <-
+        // content height <- top margin <- window height), and the panel
+        // started near the top and crept downward as results grew. Same
+        // intent, expressed against a fixed reference.
         anchors {
             top: true
-            bottom: true
-            left: true
-            right: true
         }
+        margins.top: Math.max(0, ((panelWindow.screen?.height ?? 0) - searchWidget.collapsedHeight) / 2)
 
         Connections {
             target: GlobalStates
             function onOverviewOpenChanged() {
                 if (!GlobalStates.overviewOpen) {
+                    // Release the grown size once the panel is closed, so the
+                    // next open starts from the collapsed bar again instead of
+                    // inheriting however far this session expanded.
+                    panelWindow.grownWidth = 0;
+                    panelWindow.grownHeight = 0;
                     searchWidget.disableExpandAnimation();
                     overviewScope.dontAutoCancelSearch = false;
                     GlobalFocusGrab.dismiss();
@@ -66,32 +127,100 @@ Scope {
                 GlobalStates.overviewOpen = false;
             }
         }
-        implicitWidth: columnLayout.implicitWidth
-        implicitHeight: columnLayout.implicitHeight
+        // Padded by elevationMargin on each side so SearchWidget's drop shadow
+        // (StyledRectangularShadow, which draws outside its target's bounds)
+        // still has room. The old full-screen window gave it that for free.
+        //
+        // QUANTISED, and that matters. searchWidgetContent animates its own
+        // implicitHeight (Behavior on implicitHeight, elementMove) as results
+        // populate. While this window spanned the monitor that animation was
+        // purely internal — the surface never changed size. Sizing the window
+        // to its content turned every frame of that animation into a real
+        // layer-surface resize, configure and buffer commit included, and the
+        // result never settled: measured heights bounced 283 -> 280 -> 283 ->
+        // 278 -> 280 and were still oscillating 270 <-> 271 long after the
+        // animation should have finished. That oscillation is what read as
+        // flicker.
+        //
+        // Rounding up to a step means a few pixels of movement keep landing
+        // in the same bucket, so the surface simply does not resize: the
+        // animation goes back to being internal, while the box stays far
+        // smaller than the display (which is what the plugin's blur region
+        // cares about). The step is deliberately coarse relative to the
+        // animation's per-frame delta.
+        // ...and MONOTONIC while open, which quantising alone did not give.
+        // elementMove's easing overshoots its target by a pixel or two, and
+        // near a bucket boundary that overshoot promotes itself into a full
+        // step: measured 384 -> 320 -> 448 -> 384 -> 448 -> 512 -> 576 -> 448,
+        // two steps forward and one back, so the coarser step made each
+        // visible jump bigger rather than removing it.
+        //
+        // Growing only (until the panel closes and this resets) means an
+        // overshoot cannot move the surface at all. The panel still shrinks
+        // back visually — that is the content animating inside a window that
+        // simply stays as large as it has needed to be this session.
+        readonly property int sizeStep: 64
+        property int grownWidth: 0
+        property int grownHeight: 0
+
+        readonly property int wantedWidth: Math.ceil((columnLayout.implicitWidth + Appearance.sizes.elevationMargin * 2) / sizeStep) * sizeStep
+        readonly property int wantedHeight: Math.ceil((columnLayout.implicitHeight + Appearance.sizes.elevationMargin * 2) / sizeStep) * sizeStep
+
+        onWantedWidthChanged: if (wantedWidth > grownWidth) grownWidth = wantedWidth
+        onWantedHeightChanged: if (wantedHeight > grownHeight) grownHeight = wantedHeight
+
+        // FLOOR the size at the search panel's own maximum, so typing never
+        // resizes the surface at all.
+        //
+        // Neither quantising nor monotonic requests fixed the flicker, and the
+        // frame-tagged compositor log shows why: every size "drop" landed
+        // EXACTLY on the committed texture's size. That is the layer-shell
+        // configure/commit handshake, not an oscillation — Hyprland advances
+        // the geometry to the size just requested, then falls back to the size
+        // of the buffer the client actually has, until the client catches up.
+        // Measured over one expand:
+        //     box=512 tex=448 -> box=448 tex=448 -> box=512 tex=512
+        //     box=640 tex=512 -> box=512 tex=512 -> box=576 tex=576
+        // The client's own requests were strictly monotonic throughout
+        // (256, 320, 384, ... 768), so no amount of well-behaved sizing on the
+        // QML side avoids this. ANY resize produces it.
+        //
+        // The original never flickered because it spanned the monitor and
+        // never resized. This keeps that property — a surface that does not
+        // change size — while staying small enough that the plugin's blur
+        // region is still a fraction of the display. The results list caps
+        // itself at 600px (SearchWidget.qml), so the search panel's maximum is
+        // knowable up front rather than discovered by resizing into it.
+        //
+        // grown*/wanted* remain as the fallback for anything TALLER than this
+        // floor (the workspace overview), where a resize is a discrete user
+        // action rather than a per-keystroke animation.
+        // One step of headroom on top of the computed maximum, because the
+        // computation lands exactly ON a step boundary and the real content is
+        // a hair over it. Measured: collapsedHeight 84 + list cap 600 +
+        // margins 20 = 704, quantising to 704 — while a full result list
+        // actually reports colImplicit 685.45, i.e. 705.45 with margins, which
+        // rounds up to 768. So a *completely* filled list crossed the floor by
+        // a single step and paid for a real resize (and its flash), while a
+        // short list stayed under it and was clean. The gap is the column's
+        // own spacing, which this formula has no view of.
+        //
+        // Rather than chase the exact figure, take the next step up: the cost
+        // is a marginally larger blur box, and the benefit is that no search
+        // result count can resize the surface.
+        readonly property int searchFloorWidth: Math.ceil((640 + Appearance.sizes.elevationMargin * 2) / sizeStep) * sizeStep + sizeStep
+        readonly property int searchFloorHeight: Math.ceil((searchWidget.collapsedHeight + 600 + Appearance.sizes.elevationMargin * 2) / sizeStep) * sizeStep + sizeStep
+
+        implicitWidth: Math.max(grownWidth, wantedWidth, searchFloorWidth)
+        implicitHeight: Math.max(grownHeight, wantedHeight, searchFloorHeight)
+
 
         function setSearchingText(text) {
             searchWidget.setSearchingText(text);
             searchWidget.focusFirstItem();
         }
 
-        // Background dim — real Liquid Glass panels (iOS Control Center /
-        // Notification Center) don't just rely on the panel's own material
-        // for contrast: the rest of the screen actively dims when the panel
-        // opens, and the panel itself reads brighter by comparison. Without
-        // this, a glass panel over already-dark content has nothing to
-        // contrast against no matter how good the floor logic is. Declared
-        // before columnLayout so it renders behind it; not part of the
-        // panel's own mask, so clicks still pass through to the desktop.
-        Rectangle {
-            id: dimScrim
-            anchors.fill: parent
-            color: "black"
-            opacity: GlobalStates.overviewOpen ? 0.35 : 0.0
-            visible: opacity > 0
-            Behavior on opacity {
-                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-            }
-        }
+        // (dim scrim now lives in dimWindow above — see the comment there)
 
         Column {
             id: columnLayout
@@ -99,13 +228,13 @@ Scope {
             anchors {
                 horizontalCenter: parent.horizontalCenter
                 top: parent.top
-                // Pinned to where a true vertical-center would sit the
-                // collapsed search bar, using searchWidget.collapsedHeight
-                // (fixed) rather than searchWidget.height (which grows as
-                // results populate) — so this margin never recomputes once
-                // set, and the bar stays exactly put while results drop
-                // down below it instead of the whole thing re-centering.
-                topMargin: (parent.height - searchWidget.collapsedHeight) / 2
+                // Vertical placement moved up to the window's own margins.top,
+                // computed from the SCREEN height — see the comment there for
+                // why reading parent.height here is now circular. The intent
+                // is unchanged: the collapsed bar sits where a true vertical
+                // centre would put it, and results drop down below it rather
+                // than re-centring the whole panel.
+                topMargin: 0
             }
             spacing: -8
 

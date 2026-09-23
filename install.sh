@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Brolli-Glass installer.
+# BrolliOS installer.
 #
 # Sets up the whole desktop in one run: the end-4 base (delegated to end-4's own
 # installer rather than reimplemented — theirs is maintained, a copy here would
@@ -15,7 +15,7 @@
 # the machine back and re-running is safe.
 #
 #   ./install.sh                    full install
-#   ./install.sh --profile island   just the notch and shell
+#   ./install.sh --profile shell    just the shell and its Hyprland glue
 #   ./install.sh --skip-base        you already run end-4
 #   ./install.sh --dry-run          print every action, change nothing
 #   ./install.sh --status           show how the live system differs from the repo
@@ -61,7 +61,7 @@ usage() {
     cat <<'USAGE_EOF'
 
 Options:
-  --profile P          full (default) or island
+  --profile P          full (default) or shell
   --skip-base          Don't touch the end-4 base; assume it is already working
   --voice              Print voice-dictation setup instructions
   --dry-run            Show every action without performing any of them
@@ -89,8 +89,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$PROFILE" in
-    full|island) ;;
-    *) die "unknown profile '$PROFILE' (expected: full, island)" ;;
+    full|shell) ;;
+    *) die "unknown profile '$PROFILE' (expected: full, shell)" ;;
 esac
 
 engine() {
@@ -139,6 +139,24 @@ base_present() {
     [[ -d "$HOME/.config/quickshell/ii" ]] || [[ -f "$HOME/.config/hypr/hyprland/variables.lua" ]]
 }
 
+# The compositor plugin that draws the shell's glass. Built here, not shipped:
+# it is pinned to the exact Hyprland build it compiles against. custom/execs.lua
+# loads ~/brolli-glass.so at startup. A failure here is not fatal -- the shell
+# runs without glass -- so it warns rather than dies.
+build_plugin() {
+    step "Glass plugin"
+    if (( DRY_RUN )); then
+        info "would build plugin/src/brolli-glass.cpp -> ~/brolli-glass.so"
+        return
+    fi
+    if "$REPO_DIR/install/scripts/build-plugin.sh"; then
+        ok "glass plugin installed"
+    else
+        warn "glass plugin did not build -- the shell will run without glass"
+        warn "build it later with: install/scripts/build-plugin.sh"
+    fi
+}
+
 install_base() {
     step "end-4 base"
     if base_present; then
@@ -171,7 +189,7 @@ show_voice() {
 
 # ── main ──────────────────────────────────────────────────────────────
 main() {
-    printf '%s\n' "${C_BOLD}Brolli-Glass installer${C_RESET}"
+    printf '%s\n' "${C_BOLD}BrolliOS installer${C_RESET}"
 
     if (( DO_STATUS )); then
         engine status --profile "$PROFILE"
@@ -191,12 +209,14 @@ main() {
 
     engine install --profile "$PROFILE"
 
+    build_plugin
+
     show_voice
 
     step "Done"
     info "Undo everything:  ./install.sh --uninstall"
     info "See what changed: ./install.sh --status"
-    printf '\n  %sReload the shell:%s  pkill -x qs; setsid -f qs -c Brolli-Glass\n' "$C_BOLD" "$C_RESET"
+    printf '\n  %sReload the shell:%s  pkill -x qs; setsid -f qs -c BrolliOS\n' "$C_BOLD" "$C_RESET"
     printf '  %sRestart Zen%s to pick up its traffic lights.\n\n' "$C_BOLD" "$C_RESET"
 }
 

@@ -52,6 +52,14 @@ Scope {
     // icons rise into free space rather than pushing every window down.
     readonly property real containerHeight: root.iconSize + root.containerPadding * 2 + root.dotSize + 5
     readonly property real bottomGap: 6
+    // Extra room between windows and the dock's glass. The glass reads a few
+    // px beyond its own edge (Pasted lens: 2 x softness + colour split, ~11px
+    // at the tuned values), and a terminal reports its WHOLE window as damaged
+    // on every redraw -- bottom rows included. With windows stopping ~6px above
+    // the glass, a terminal's spinner redrew the dock ~24 times a second
+    // (measured: plugin `glassopt why` showed the damage as the terminal's
+    // bottom 5px strip). 8px more puts windows ~14px clear.
+    readonly property real glassClearance: 8
     readonly property real dotSize: 4
     readonly property real peak: root.cfg?.magnification?.peak ?? 1.28
     readonly property real spread: root.cfg?.magnification?.spread ?? 2.9
@@ -87,7 +95,7 @@ Scope {
             exclusionMode: (root.cfg?.reserveSpace ?? true)
                 ? ExclusionMode.Normal : ExclusionMode.Ignore
             exclusiveZone: (root.cfg?.reserveSpace ?? true)
-                ? root.containerHeight + root.bottomGap : 0
+                ? root.containerHeight + root.bottomGap + root.glassClearance : 0
 
             // Bottom-only on purpose (NOT top too) — anchoring all four
             // edges made this surface fill the whole output, and
@@ -343,9 +351,10 @@ Scope {
                     LiquidGlassBackground {
                         id: dockGlass
                         anchors.fill: parent
+                        // Tells the compositor glass plugin which layer this
+                        // panel lives in (matches dockWindow's own namespace).
+                        glassNamespace: "quickshell:macDock"
                         screen: dockWindow.screen
-                        yOffset: container.windowScreenYOffset
-                        staticWallpaper: !container.useLiveCapture
                         // Only the dock opts into screen-lock/unlock
                         // recovery (see LiquidGlassBackground.qml's own
                         // comment above unlockRecoveryEnabled for why this
@@ -354,7 +363,6 @@ Scope {
                         // once) — this is specifically the surface that's
                         // been reported going solid black after a
                         // suspend/resume (lock/unlock) cycle.
-                        unlockRecoveryEnabled: true
                     }
 
                     // No separate hairline Rectangle here (there was one,
@@ -688,8 +696,6 @@ Scope {
                         // first real backdrop sample lands.
                         color: Appearance.colors.colOnLayer0
                         glassRoot: dockGlass
-                        backdropTexture: dockGlass.currentBackdropTexture
-                        contrastActive: dockGlass.liveCaptureActive
                     }
                 }
 

@@ -4,6 +4,7 @@ import qs
 import qs.services
 import qs.modules.common
 import qs.modules.common.widgets
+import qs.modules.common.widgets.glass
 import qs.modules.ii.bar
 import QtQuick
 import QtQuick.Layouts
@@ -157,6 +158,31 @@ Scope {
                 }
             }
 
+            // ── Adaptive text: one colour for the whole strip ────
+            // The plugin measures the average colour behind the bar strip
+            // (GlassSample); the strip's own translucent fill is mixed in,
+            // since that is what the text actually sits on. Every title,
+            // icon, the clock and the workspace dots take this one colour
+            // -- never a mix of black and white across the bar.
+            Item {
+                id: barStrip
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: root.barHeight
+            }
+            GlassSample {
+                id: barSample
+                target: barStrip
+                layerNamespace: "quickshell:menubar"
+                overlayColor: Appearance.colors.colLayer0
+                // "bar": a flat fill at materialOpacity. "scrim": a gradient,
+                // ~0.4 opaque at text height (0.74 at the top, 0.32 at 55%).
+                overlayOpacity: root.material === "bar" ? root.materialOpacity
+                    : root.material === "scrim" ? 0.4 : 0
+            }
+            readonly property color barFg: barSample.ready ? barSample.textColor : Appearance.colors.colOnLayer0
+
             // ── Left: menu titles, then workspaces ───────────────
             RowLayout {
                 id: leftCluster
@@ -173,6 +199,7 @@ Scope {
                 MenuTitle {
                     id: systemTitle
                     menuId: "system"
+                    fg: barWindow.barFg
                     symbol: Config.options.bar.topLeftIcon === "spark" ? "auto_awesome" : "linux"
                     IslandPopup {
                         anchorItem: systemTitle
@@ -190,6 +217,7 @@ Scope {
                 MenuTitle {
                     id: windowTitle
                     menuId: "window"
+                    fg: barWindow.barFg
                     label: Translation.tr("Window")
                     IslandPopup {
                         anchorItem: windowTitle
@@ -208,6 +236,7 @@ Scope {
                 MenuTitle {
                     id: goTitle
                     menuId: "go"
+                    fg: barWindow.barFg
                     label: Translation.tr("Go")
                     IslandPopup {
                         anchorItem: goTitle
@@ -222,6 +251,7 @@ Scope {
                 MenuTitle {
                     id: captureTitle
                     menuId: "capture"
+                    fg: barWindow.barFg
                     label: Translation.tr("Capture")
                     IslandPopup {
                         anchorItem: captureTitle
@@ -236,6 +266,7 @@ Scope {
                 MenuTitle {
                     id: focusTitle
                     menuId: "focus"
+                    fg: barWindow.barFg
                     label: Translation.tr("Focus")
                     IslandPopup {
                         anchorItem: focusTitle
@@ -251,6 +282,7 @@ Scope {
                 // they are an indicator, not a menu, so they read better after
                 // the things that are.
                 BarWorkspaces {
+                    usedColor: barWindow.barFg
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 10
                 }
@@ -287,6 +319,7 @@ Scope {
 
                 // Scroll to change volume, click to mute, right click for the mixer.
                 MenuItem {
+                    fg: barWindow.barFg
                     symbol: Audio.sink?.audio?.muted ? "volume_off"
                         : (Audio.sink?.audio?.volume ?? 0) > 0.5 ? "volume_up"
                         : (Audio.sink?.audio?.volume ?? 0) > 0 ? "volume_down" : "volume_mute"
@@ -303,6 +336,7 @@ Scope {
 
                 // Click toggles the adapter, right click opens the full settings.
                 MenuItem {
+                    fg: barWindow.barFg
                     visible: BluetoothStatus.available
                     symbol: BluetoothStatus.connected ? "bluetooth_connected"
                         : BluetoothStatus.enabled ? "bluetooth" : "bluetooth_disabled"
@@ -316,6 +350,7 @@ Scope {
 
                 // Click toggles wifi, right click opens network settings.
                 MenuItem {
+                    fg: barWindow.barFg
                     symbol: Network.ethernet ? "lan"
                         : !Network.wifiEnabled ? "wifi_off"
                         : Network.wifi ? "wifi" : "wifi_find"
@@ -327,6 +362,7 @@ Scope {
                 // Control Centre — the sliders/toggles panel, like macOS.
                 MenuItem {
                     id: ccItem
+                    fg: barWindow.barFg
                     symbol: "tune"
                     active: barWindow.controlCentreOpen
                     onTriggered: {
@@ -359,7 +395,7 @@ Scope {
                     font.family: Appearance.font.family.monospace
                     color: (Battery.isLow && !Battery.isCharging)
                         ? Appearance.m3colors.m3error
-                        : Appearance.colors.colOnLayer0
+                        : barWindow.barFg
                 }
 
                 MaterialSymbol {
@@ -370,7 +406,7 @@ Scope {
                     fill: 1
                     color: (Battery.isLow && !Battery.isCharging)
                         ? Appearance.m3colors.m3error
-                        : Appearance.colors.colOnLayer0
+                        : barWindow.barFg
                 }
 
                 // Click drops a real calendar, not another sidebar toggle.
@@ -381,7 +417,7 @@ Scope {
                     font.pixelSize: Appearance.font.pixelSize.small
                     color: clockArea.containsMouse
                         ? Appearance.colors.colPrimary
-                        : Appearance.colors.colOnLayer0
+                        : barWindow.barFg
 
                     Behavior on color {
                         animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
@@ -461,6 +497,7 @@ Scope {
     component MenuTitle: Item {
         id: title
         required property string menuId
+        property color fg: Appearance.colors.colOnLayer0
         property string label: ""
         property string symbol: ""
         readonly property bool isOpen: root.openMenu === title.menuId
@@ -475,8 +512,8 @@ Scope {
             // A translucent wash rather than the accent fill. A menu title is a
             // place you are, not an alert — the accent pill shouted, and against
             // a dark bar it was the loudest thing on screen.
-            color: title.isOpen ? Qt.rgba(1, 1, 1, 0.15)
-                : titleArea.containsMouse ? Qt.rgba(1, 1, 1, 0.07)
+            color: title.isOpen ? Qt.rgba(title.fg.r, title.fg.g, title.fg.b, 0.15)
+                : titleArea.containsMouse ? Qt.rgba(title.fg.r, title.fg.g, title.fg.b, 0.07)
                 : "transparent"
             Behavior on color {
                 ColorAnimation { duration: 160; easing.type: Easing.OutQuad }
@@ -488,7 +525,7 @@ Scope {
             visible: title.symbol.length > 0
             text: title.symbol
             iconSize: 19
-            color: Appearance.colors.colOnLayer0
+            color: title.fg
         }
 
         StyledText {
@@ -498,7 +535,7 @@ Scope {
             text: title.label
             font.pixelSize: Appearance.font.pixelSize.small
             font.weight: Font.DemiBold
-            color: Appearance.colors.colOnLayer0
+            color: title.fg
         }
 
         MouseArea {
@@ -518,6 +555,7 @@ Scope {
     component MenuItem: MaterialSymbol {
         id: menuItem
         required property string symbol
+        property color fg: Appearance.colors.colOnLayer0
         property bool active: true          // false = "off", dimmed
         property bool scrollable: false
         signal triggered()
@@ -531,7 +569,7 @@ Scope {
         opacity: menuItem.active ? 1 : 0.45
         color: itemArea.containsMouse
             ? Appearance.colors.colPrimary
-            : Appearance.colors.colOnLayer0
+            : menuItem.fg
 
         Behavior on color {
             animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)

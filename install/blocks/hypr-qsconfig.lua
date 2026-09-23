@@ -1,2 +1,2 @@
 -- Point end-4's Hyprland config at this Quickshell config rather than "ii".
-hl.env("qsConfig", "Brolli-Glass")
+hl.env("qsConfig", "BrolliOS")

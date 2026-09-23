@@ -167,6 +167,10 @@ Item {
         anchors.fill: parent
         screen: widget.board?.screen ?? null
         cornerRadiusOverride: widget.cardRadius
+        // Opts this card into the compositor glass plugin. The widgets layer is
+        // WlrLayer.Bottom, which the plugin queues at RENDER_POST_WALLPAPER so
+        // the glass sits under any window covering the card, not over it.
+        glassNamespace: "quickshell:desktopWidgets"
         // Desktop widgets sit on WlrLayer.Bottom — anything actually in
         // front of one (a window) would occlude it entirely in the real
         // compositor output, so the only thing a widget can ever
@@ -216,8 +220,6 @@ Item {
         //    component its own independent ScreencopyView instead of the
         //    cross-window shared one — see its own comment in
         //    LiquidGlassBackground.qml for the full writeup.
-        staticWallpaper: !widget.interacting
-        useOwnCapture: true
         // CLAUDE/local (2026-09-17): none of LiquidGlassBackground's own
         // motion signals (mouseDragActive/trackpadGestureActive/
         // superDown+pointerMoving) can ever see THIS widget dragging
@@ -228,7 +230,6 @@ Item {
         // to the ~1x/sec idle-pulse the whole time instead of refreshing
         // continuously, reported as the backdrop updating at an
         // "arythmic, almost random" cadence while actively dragging.
-        extraCaptureActive: widget.interacting
     }
 
     Rectangle {

@@ -214,7 +214,7 @@ Singleton {
         root.discardAll();
     }
 
-    // Shell-side escape hatch: `qs -c Brolli-Glass ipc call notifs clearAll`
+    // Shell-side escape hatch: `qs -c BrolliOS ipc call notifs clearAll`
     // (handy when a reload leaves stale notifications with dead image handles)
     IpcHandler {
         target: "notifs"

@@ -5,6 +5,41 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-23 — Folded into the main tree; blur 3x cheaper
+
+**Status:** `shell-plugin/` is gone. Its 30 changed/new files were copied into
+`quickshell/`, the runtime symlink repointed there, and the shell restarted
+from it. The old glass pipeline is deleted (history in git); nothing needs the
+patched Hyprland's `no_self_capture` any more -- stock Hyprland + the plugin.
+
+### Done
+- **Blur in 9 samples, not 25** (aghajari.gles.frag): the same 5x5 Gaussian
+  via the GPU's own blending between pixels. Repeatable load, 3 runs each:
+  blur cost 0.37 W (25.4% GPU) -> 0.11 W (22.3%); blur off 5.18 W / 21.4%.
+- **No blur on blur**: a panel drawn over glass already drawn this frame (a
+  menubar dropdown over a desktop widget) drops its own softening. Apple:
+  avoid the material on both layers. Per panel, so no seams.
+- **Right sidebar** lost a leftover 44px top margin from the floating-island
+  strip; it now opens level with the left one.
+- **Regression checks passed** (Joel, by eye): lock/unlock (no errors, glass
+  returns), cursor over glass (no smearing), scale 1.25 (glass lines up
+  exactly). Multi-monitor not tested -- no second screen to hand.
+  Note: `hyprctl reload` does NOT undo a runtime `hl.monitor` change; set the
+  scale back explicitly.
+
+### Next
+- **Rename** (done 2026-09-23): plugin `glass4` -> `Brolli-Glass`
+  (`src/brolli-glass.cpp`, `~/brolli-glass.so`), material ->
+  `src/brolliglass.frag`. hyprctl commands stay `glass*`. Shell -> BrolliOS
+  still to do.
+- **Cut the comments down** across plugin + shell glass code: keep the why,
+  drop the essays.
+- Glass still redraws under OPAQUE windows (our needsLiveBlur flag stops
+  Hyprland occluding it) -- invisible work, needs care to change.
+- The screen "dim" (below) is still unexplained.
+
+---
+
 ## OPEN: the screen "dim" / bump (unsolved, 2026-09-22)
 
 Joel sees a brief whole-screen dim -- "normal, slight dim, immediate back to
@@ -227,9 +262,8 @@ bank the headroom first.
 - **What does the 1-2 W target cover?** Static desktop should already be ~0
   (no frame rendered, hook never fires). Unrelated-repaint frames and active
   dragging are very different budgets.
-- `~/.config/quickshell/Brolli-Glass` currently points at `shell-plugin/`.
-  Restore with:
-  `ln -sfn ~/Projects/Brolli-Glass/quickshell ~/.config/quickshell/Brolli-Glass`
+- `~/.config/quickshell/Brolli-Glass` points at `quickshell/` (it pointed at
+  the since-deleted `shell-plugin/` copy until 2026-09-23).
 
 ### Gotchas hit
 

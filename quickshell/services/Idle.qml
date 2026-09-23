@@ -59,7 +59,7 @@ Singleton {
     // not only once some panel happens to reference it.
     function load() {}
 
-    // `qs -c Brolli-Glass ipc call idle status`
+    // `qs -c BrolliOS ipc call idle status`
     IpcHandler {
         target: "idle"
 

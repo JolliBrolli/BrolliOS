@@ -68,14 +68,14 @@ Item {
                 text: SystemInfo.distroName
                 font.pixelSize: Appearance.font.pixelSize.normal
                 font.weight: Font.DemiBold
-                color: Appearance.colors.colOnLayer0
+                color: IslandStyle.fg
             }
             StyledText {
                 text: root.kernel.length > 0
                     ? `${root.kernel} · ${SystemInfo.windowingSystem}`
                     : SystemInfo.windowingSystem
                 font.pixelSize: Appearance.font.pixelSize.smallest
-                color: Appearance.colors.colSubtext
+                color: IslandStyle.subFg
             }
         }
 
@@ -149,7 +149,7 @@ Item {
         Layout.topMargin: 4
         Layout.bottomMargin: 3
         implicitHeight: 1
-        color: Appearance.m3colors.m3outlineVariant
+        color: IslandStyle.divider
     }
 
     component MenuRow: MouseArea {
@@ -178,7 +178,7 @@ Item {
             anchors.rightMargin: 2
             radius: Appearance.rounding.verysmall
             color: row.isArmed ? Appearance.m3colors.m3errorContainer
-                : row.containsMouse ? Qt.rgba(1, 1, 1, 0.075)
+                : row.containsMouse ? IslandStyle.hoverFill
                 : "transparent"
 
             // Slower than elementMoveFast: a highlight that snaps draws the eye
@@ -198,14 +198,14 @@ Item {
                 text: row.isArmed ? "warning" : row.symbol
                 iconSize: 17
                 color: row.isArmed ? Appearance.m3colors.m3onErrorContainer
-                    : Appearance.colors.colOnLayer1
+                    : IslandStyle.fg
             }
             StyledText {
                 Layout.fillWidth: true
                 text: row.isArmed ? Translation.tr("Click again to confirm") : row.label
                 font.pixelSize: Appearance.font.pixelSize.smaller
                 color: row.isArmed ? Appearance.m3colors.m3onErrorContainer
-                    : Appearance.colors.colOnLayer1
+                    : IslandStyle.fg
                 elide: Text.ElideRight
             }
         }

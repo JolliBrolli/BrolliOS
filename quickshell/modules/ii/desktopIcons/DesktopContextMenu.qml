@@ -190,11 +190,11 @@ Item {
             Sep {}
             Row_ {
                 label: "Change Wallpaper"
-                cmd: `qs -c Brolli-Glass ipc call wallpaperSelector toggle 2>/dev/null || ${JSON.stringify(Quickshell.env("HOME") + "/.config/quickshell/ii/scripts/colors/switchwall.sh")}`
+                cmd: `qs -c BrolliOS ipc call wallpaperSelector toggle 2>/dev/null || ${JSON.stringify(Quickshell.env("HOME") + "/.config/quickshell/ii/scripts/colors/switchwall.sh")}`
             }
             Row_ {
                 label: "Display Settings"
-                cmd: `XDG_CURRENT_DESKTOP=gnome qs -p ${JSON.stringify(Quickshell.env("HOME") + "/.config/quickshell/Brolli-Glass/settings.qml")}`
+                cmd: `XDG_CURRENT_DESKTOP=gnome qs -p ${JSON.stringify(Quickshell.env("HOME") + "/.config/quickshell/BrolliOS/settings.qml")}`
             }
         }
     }

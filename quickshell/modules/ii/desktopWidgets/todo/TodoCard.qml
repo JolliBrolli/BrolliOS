@@ -196,8 +196,6 @@ DesktopWidget {
                             item: modelData
                             position: index + 1
                             glassRoot: root.glassBackground
-                            glassBackdropTexture: root.glassBackground.currentBackdropTexture
-                            glassContrastActive: root.glassBackground.liveCaptureActive
                             onToggleRequested: Todo.toggleDoneById(modelData.id)
                             onDeleteRequested: Todo.deleteById(modelData.id)
                             onStartRequested: root.startTask(modelData)
@@ -270,8 +268,6 @@ DesktopWidget {
                 Layout.fillWidth: true
                 item: modelData
                 glassRoot: root.glassBackground
-                glassBackdropTexture: root.glassBackground.currentBackdropTexture
-                glassContrastActive: root.glassBackground.liveCaptureActive
                 onToggleRequested: Todo.toggleDoneById(modelData.id)
                 onDeleteRequested: Todo.deleteById(modelData.id)
             }

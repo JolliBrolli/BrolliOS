@@ -178,7 +178,7 @@ Singleton {
         onReleased: root.pttReleased()
     }
 
-    // Scriptable from the CLI: qs -c Brolli-Glass ipc call hyprvoice pttPress
+    // Scriptable from the CLI: qs -c BrolliOS ipc call hyprvoice pttPress
     IpcHandler {
         target: "hyprvoice"
 

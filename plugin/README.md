@@ -9,10 +9,9 @@ distro headers, loads into stock `/usr/bin/Hyprland` with
 `hyprctl plugin load`, and unloads in about two seconds with no restart. No
 `no_self_capture` patch, no `Hyprland-brolli` binary, no screencopy.
 
-**The plugin does not author the material.** Its job is purely the data path:
-it hands Joel's existing `liquidglasstest.frag` the same inputs the old QML
-pipeline used to build by screencopy. The look is unchanged — confirmed by eye
-against the original.
+**The plugin's job is the data path**, not the look: it hands the material
+(`src/brolliglass.frag`) the same inputs the old QML pipeline used to build by
+screencopy, and everything about the look is a uniform the shell sends.
 
 ---
 
@@ -55,27 +54,21 @@ per layer, immediately before Hyprland draws it  (renderLayer hook)
      damage gate    skip unless this frame's render damage touches the panel
      capture        glBlitFramebuffer of panel + 48px padding, out of the
                     framebuffer this frame is being composited into  -> source
-     hblur          Joel's liquidglasshblur.frag over the capture   -> sourceHBlur
-     material       Joel's liquidglasstest.frag, drawn across the panel
+     panel stats    mean + spread of the backdrop, for the readability layer
+     material       src/brolliglass.frag, drawn across the panel
 ```
 
 | input the material expects | supplied by |
 |---|---|
-| `source` | the blit — sharp, no blur stage (see *No blur* below) |
-| `sourceHBlur` | Joel's own H-blur pass, run in the plugin |
-| `panelSize`, `texSize`, `pad` | the plugin, from the panel rect and capture size |
-| the other 21 look uniforms | the shell, via `hyprctl glassuniform` |
+| `source` | the blit — the backdrop, sharp |
+| `panelStats` | the plugin's own averaging pass over that capture |
+| `panelSize`, `texSize`, `pad`, `glassDir`, `glassOverGlass` | the plugin |
+| the look uniforms | the shell, via `hyprctl glassuniform` |
 | panel rects | the shell, via `hyprctl glassrect` |
+| colour-sample regions | the shell, via `hyprctl glasssample` |
 
-### The material is ported, not rewritten
-
-`src/port_shader.py` translates the project's Qt `.frag` files to GLES 3.00:
-`#version 440` → `#version 300 es`, Qt's std140 uniform block → individual
-uniforms, `layout(...)` decorations dropped, `qt_Opacity := 1.0`. **Shader
-bodies are copied verbatim.** The vertex shader supplies `qt_TexCoord0` with
-its Qt meaning (panel-local UV, 0..1), so `toTex()` and `sampleBlurred()` need
-no changes. Output goes to `src/generated/`, which the plugin loads from disk —
-tune the `.frag`, re-run the script, reload the plugin. No rebuild.
+The material is read from disk at load, so tuning it needs a plugin reload,
+not a rebuild.
 
 ### Geometry and uniforms come from the shell
 
@@ -139,10 +132,11 @@ rect arriving a frame late) damage the affected panels explicitly.
 
 ## The shell side
 
-`shell-plugin/` is a copy of `quickshell/` with the old glass removed:
-`LiquidGlassBackground.qml` reduced from 990 lines to a transparent item that
-hosts a `GlassRegion`, both capture services gutted to no-ops, Spotlight's
-shader chain deleted, `GlassTest` unregistered. No `ScreencopyView`, no
+The old glass is gone from `quickshell/`: `LiquidGlassBackground.qml` reduced
+from 990 lines to a transparent item that hosts a `GlassRegion`, both capture
+services gutted to no-ops, Spotlight's shader chain deleted, `GlassTest`
+unregistered. (Until 2026-09-23 this lived in a separate `shell-plugin/` copy
+while the plugin was proven out; its history is in git.) No `ScreencopyView`, no
 `ShaderEffect`, no settle timers, no static-wallpaper fallback anywhere in the
 glass path.
 
@@ -168,11 +162,16 @@ hyprctl glassuniform <name> <v> [v v v]
 
 ```bash
 cd plugin/src
-python3 port_shader.py          # after changing either .frag
 g++ -shared -fPIC --no-gnu-unique -std=c++26 -O2 -DWLR_USE_UNSTABLE \
-    $(pkg-config --cflags hyprland pixman-1 libdrm) glass4.cpp -o glass4.so
-hyprctl plugin load "$PWD/glass4.so"
+    $(pkg-config --cflags hyprland pixman-1 libdrm) brolli-glass.cpp -o brolli-glass.so
+hyprctl plugin unload ~/brolli-glass.so      # ALWAYS unload before replacing the file
+cp brolli-glass.so ~/brolli-glass.so.new && mv ~/brolli-glass.so.new ~/brolli-glass.so
+hyprctl plugin load ~/brolli-glass.so
 ```
+
+`custom/execs.lua` loads `~/brolli-glass.so` at startup (`hl.plugin.load`), so
+it comes back after a reboot. Never `cp` over the file while it is loaded: the
+running Hyprland has it mapped, and the next unload crashes the session.
 
 Pinned to the exact Hyprland build; rebuild after every update. **Never load a
 build made against stock headers into the patched `Hyprland-brolli` binary** —
@@ -254,9 +253,6 @@ blocks. Removed.
 
 ## Files
 
-- `src/glass4.cpp` — the plugin
-- `src/port_shader.py` — Qt `.frag` → GLES translator
-- `src/generated/` — its output, loaded at runtime
-- `src/glass3.cpp`, `src/glass5.cpp` — early spikes (fixed rectangle; draw-over
-  diagnostic), kept for history
+- `src/brolli-glass.cpp` — the plugin
+- `src/brolliglass.frag` — the material, loaded from disk at plugin load
 - `nested.lua` — minimal stock-Hyprland config for nested testing

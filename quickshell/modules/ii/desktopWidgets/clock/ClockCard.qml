@@ -264,8 +264,6 @@ DesktopWidget {
                 // real backdrop sample lands.
                 color: Appearance.colors.colOnLayer0
                 glassRoot: root.glassBackground
-                backdropTexture: root.glassBackground.currentBackdropTexture
-                contrastActive: root.glassBackground.liveCaptureActive
             }
             StyledText {
                 Layout.alignment: Qt.AlignBottom
@@ -290,8 +288,6 @@ DesktopWidget {
             color: Appearance.colors.colOnLayer1
             elide: Text.ElideRight
             glassRoot: root.glassBackground
-            backdropTexture: root.glassBackground.currentBackdropTexture
-            contrastActive: root.glassBackground.liveCaptureActive
         }
 
         StyledText {

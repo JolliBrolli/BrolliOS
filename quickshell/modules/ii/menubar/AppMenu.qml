@@ -65,7 +65,7 @@ Item {
             text: root.hasApp ? root.appName : Translation.tr("No window focused")
             font.pixelSize: Appearance.font.pixelSize.smaller
             font.weight: Font.DemiBold
-            color: root.hasApp ? Appearance.colors.colOnLayer0 : Appearance.colors.colSubtext
+            color: root.hasApp ? IslandStyle.fg : IslandStyle.subFg
             elide: Text.ElideRight
         }
 
@@ -146,7 +146,7 @@ Item {
         Layout.topMargin: 4
         Layout.bottomMargin: 3
         implicitHeight: 1
-        color: Appearance.m3colors.m3outlineVariant
+        color: IslandStyle.divider
     }
 
     component MenuRow: MouseArea {
@@ -175,7 +175,7 @@ Item {
             anchors.rightMargin: 2
             radius: Appearance.rounding.verysmall
             color: row.isArmed ? Appearance.m3colors.m3errorContainer
-                : row.containsMouse ? Qt.rgba(1, 1, 1, 0.075)
+                : row.containsMouse ? IslandStyle.hoverFill
                 : "transparent"
 
             // Slower than elementMoveFast: a highlight that snaps draws the eye
@@ -195,14 +195,14 @@ Item {
                 text: row.isArmed ? "warning" : row.symbol
                 iconSize: 17
                 color: row.isArmed ? Appearance.m3colors.m3onErrorContainer
-                    : Appearance.colors.colOnLayer1
+                    : IslandStyle.fg
             }
             StyledText {
                 Layout.fillWidth: true
                 text: row.isArmed ? Translation.tr("Click again to confirm") : row.label
                 font.pixelSize: Appearance.font.pixelSize.smaller
                 color: row.isArmed ? Appearance.m3colors.m3onErrorContainer
-                    : Appearance.colors.colOnLayer1
+                    : IslandStyle.fg
                 elide: Text.ElideRight
             }
         }

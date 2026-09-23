@@ -180,7 +180,7 @@ Item {
         Layout.fillWidth: true
         font.pixelSize: Appearance.font.pixelSize.smallest
         font.weight: Font.DemiBold
-        color: Appearance.colors.colSubtext
+        color: IslandStyle.subFg
     }
 
     component ModeChip: Rectangle {
@@ -246,7 +246,7 @@ Item {
             text: statRow.symbol
             iconSize: 18
             fill: 1
-            color: statRow.warn ? Appearance.m3colors.m3error : Appearance.colors.colOnLayer1
+            color: statRow.warn ? Appearance.m3colors.m3error : IslandStyle.fg
         }
 
         ColumnLayout {
@@ -258,14 +258,14 @@ Item {
                 StyledText {
                     text: statRow.label
                     font.pixelSize: Appearance.font.pixelSize.smaller
-                    color: Appearance.colors.colOnLayer1
+                    color: IslandStyle.fg
                 }
                 Item { Layout.fillWidth: true }
                 StyledText {
                     text: statRow.detail
                     font.pixelSize: Appearance.font.pixelSize.smallest
                     font.family: Appearance.font.family.monospace
-                    color: statRow.warn ? Appearance.m3colors.m3error : Appearance.colors.colSubtext
+                    color: statRow.warn ? Appearance.m3colors.m3error : IslandStyle.subFg
                 }
             }
 
@@ -307,7 +307,7 @@ Item {
             fill: 1
             color: symbolArea.containsMouse
                 ? Appearance.colors.colPrimary
-                : Appearance.colors.colOnLayer1
+                : IslandStyle.fg
 
             MouseArea {
                 id: symbolArea

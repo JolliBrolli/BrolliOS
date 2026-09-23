@@ -39,8 +39,6 @@ RippleButton {
     // Per-region adaptive text contrast (see AdaptiveGlassText.qml) — passed
     // down from SearchWidget.qml's own glass instance.
     property var glassRoot: null
-    property var glassBackdropTexture: null
-    property bool glassContrastActive: true
 
     visible: root.entryShown
     property int horizontalMargin: 10
@@ -58,7 +56,9 @@ RippleButton {
     // it. The highlighted row covers keyboard AND mouse hover, both via
     // `selected` below.
     function chipColor(alpha) {
-        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, alpha) : Qt.rgba(0, 0, 0, alpha);
+        // + the glass's squash-driven boost (SearchWidget's chipBoost).
+        const a = Math.min(1, alpha + (root.glassRoot?.chipBoost ?? 0));
+        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, a) : Qt.rgba(0, 0, 0, a);
     }
     colBackground: (root.down || root.keyboardDown || selected)
         ? root.chipColor(Config.options.appearance.liquidGlass.chipOpacityHover)
@@ -210,8 +210,6 @@ RippleButton {
                 visible: root.itemType && root.itemType != Translation.tr("App")
                 text: root.itemType
                 glassRoot: root.glassRoot
-                backdropTexture: root.glassBackdropTexture
-                contrastActive: root.glassContrastActive
             }
             RowLayout {
                 Loader { // Checkmark for copied clipboard entry
@@ -250,8 +248,6 @@ RippleButton {
                     elide: Text.ElideRight
                     text: root.selected ? StringUtils.escapeHtml(root.itemName) : root.displayContent
                     glassRoot: root.glassRoot
-                    backdropTexture: root.glassBackdropTexture
-                    contrastActive: root.glassContrastActive
                 }
             }
             Loader { // Clipboard image preview
@@ -276,8 +272,6 @@ RippleButton {
             horizontalAlignment: Text.AlignRight
             text: root.itemClickActionName
             glassRoot: root.glassRoot
-            backdropTexture: root.glassBackdropTexture
-            contrastActive: root.glassContrastActive
         }
 
         RowLayout {
