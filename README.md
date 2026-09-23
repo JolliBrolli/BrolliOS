@@ -1,4 +1,4 @@
-<h1 align="center">Brolli-Glass</h1>
+<h1 align="center">BrolliOS</h1>
 
 <p align="center"><b>A macOS-style desktop for Hyprland, with liquid glass drawn by the compositor.</b></p>
 
@@ -38,23 +38,25 @@ text flips between light and dark **as one**, following whatever is behind it.
 
 <p align="center"><img src="docs/screenshots/dock.png" alt="The dock, with magnification and running-app indicators" width="900"></p>
 
-**Dock** — magnifies on hover, marks running apps, and its Trash reflects whether
-the Trash actually has anything in it.
+**Dock** — magnifies on hover, marks running apps.
 
 <p align="center"><img src="docs/screenshots/widgets.png" alt="Clock, calendar and to-do widgets on the wallpaper" width="640"></p>
 
 **Widgets** — clock, calendar and to-do sit above the wallpaper and below every
 window. Desktop icons share that space and step aside when a widget covers them.
 
+<p align="center"><img src="docs/screenshots/spotlight.png" alt="Workspace overview" width="900"></p>
+
+**Spotlight** searches apps, files, maths and shell commands. In short it's end-4's app
+launcher with the glass effect.
+
+
 <p align="center"><img src="docs/screenshots/overview.png" alt="Workspace overview" width="900"></p>
 
-**Spotlight** searches apps, files, maths and shell commands. The **overview**
-drags windows between workspaces. Alongside those: the end-4 sidebars and Control
-Centre, notifications, OSD, lock screen, hot corners, an on-screen keyboard, and a
+**Overview** is the workspace overview, which drags windows between workspaces.
+Alongside those: the end-5 sidebars and Control Centre, notifications, OSD,
+lock screen, hot corners, an on-screen keyboard, and a
 settings app with a live page for every glass uniform.
-
-Everything renders **per-monitor in correct logical coordinates**, scaled displays
-included.
 
 ---
 
@@ -81,14 +83,15 @@ anything completely hidden behind an opaque window is dropped.
   refractive, with the character living at the edges.
 - **Readability per panel, never per pixel.** Each panel measures its whole
   backdrop, then squashes a busy one's contrast and lifts itself slightly; the
-  text on it flips black or white to match. A per-pixel floor was tried first and
-  striped busy wallpapers like a zebra.
+  text on it flips black or white to match.
 - **No glass on glass.** A panel drawn over glass already drawn this frame drops
-  its own softening, per Apple's own guidance.
-- **Every value is a slider** in **Settings → Liquid Glass**, pushed live.
+  its own softening, this is based on Apple's docs.
+- **Every value is a slider** in **Settings → Liquid Glass**, dynamically updates.
 
 **Measured cost** — paired runs on battery, same action with and without the
 plugin, 20 s averages of GPU package power. Δ is the glass:
+
+**There are measurements on my own machine, your results may vary. although not by much.**
 
 | scenario | with | without | **Δ GPU** |
 |---|---|---|---|
@@ -104,8 +107,7 @@ Full design, the material's maths and every gotcha: **[`plugin/README.md`](plugi
 ## Requirements
 
 - **Hyprland** with the **end-4 / illogical-impulse** setup (its Lua-based Hyprland
-  config, packages, fonts, services and Quickshell). Arch-based — CachyOS,
-  EndeavourOS, … — is the smoothest path.
+  config, packages, fonts, services and Quickshell).
 - **Quickshell** ≥ 0.2.1 (installed by the end-4 setup).
 - A C++ compiler and the **Hyprland headers**, to build the plugin.
 - **Fonts are not shipped** — none of them may be redistributed. The installer
@@ -119,13 +121,14 @@ Details in [docs/requirements.md](docs/requirements.md).
 ```sh
 git clone https://github.com/JolliBrolli/Brolli-Glass.git ~/Projects/Brolli-Glass
 cd ~/Projects/Brolli-Glass
-./install.sh
+./install.sh # THIS WILL OVERWRITE YOUR HYPRLAND CONFIG,
+             # it creates a backup just an fyi
 ```
 
 That is the whole desktop: the end-4 base (delegated to end-4's own installer),
 then every artifact in [`manifest.toml`](manifest.toml) — icons, theme, GTK and
 Qt settings, wallpapers, Hyprland config, terminal and launcher — then the glass
-plugin, built to `~/brolli-glass.so`. Everything it writes is backed up before
+plugin, built to `~/.local/share/brolli-glass/`. Everything it writes is backed up before
 the first change, so `./install.sh --uninstall` puts the machine back.
 
 ### Already have a rice you like?
@@ -147,7 +150,7 @@ profile skips:
 
 ```lua
 -- ~/.config/hypr/custom/execs.lua
-hl.plugin.load(os.getenv("HOME") .. "/brolli-glass.so")
+hl.plugin.load(os.getenv("HOME") .. "/.local/share/brolli-glass/brolli-glass.so")
 ```
 
 Without it the shell runs, but with no glass until you load the plugin by hand.
@@ -166,16 +169,7 @@ Without it the shell runs, but with no glass until you load the plugin by hand.
 
 Relog when it finishes (or `pkill -x qs; setsid -f qs -c BrolliOS`). The plugin
 loads from `~/.config/hypr/custom/execs.lua` at startup; to load it now,
-`hyprctl plugin load ~/brolli-glass.so`.
-
-**The clone is disposable.** The shell is copied into
-`~/.config/quickshell/BrolliOS`, and the plugin keeps its own copy of the
-material, so `rm -rf` on the checkout leaves a working desktop — it just means
-updates need another clone. Working *on* the shell is the opposite case: install
-with `--link` and the repo is symlinked in, so edits hot-reload and the checkout
-has to stay put.
-
----
+`hyprctl plugin load ~/.local/share/brolli-glass/brolli-glass.so`.
 
 ## Layout
 
@@ -206,13 +200,14 @@ has to stay put.
 [patheonsceo](https://github.com/patheonsceo)**, which is itself built on
 **[end-4 / dots-hyprland](https://github.com/end-4/dots-hyprland)**. The installer, the docs, and
 the first dock, menubar and desktop widgets are patheonsceo's work; most of the
-rest of the desktop is end-4's. What is new here is the glass.
+rest of the desktop is end-4's. What is new here is the glass and a more polished MacOS focused style.
 
 - **[end-4 / dots-hyprland (illogical-impulse)](https://github.com/end-4/dots-hyprland)** — the
   framework everything sits on, and most of the desktop that isn't macOS-shaped.
+  without this none of this desktop would be possible :)
 - **[patheonsceo / OpenAgentIsland](https://github.com/patheonsceo/openagentisland)** — the
   project this is forked from. Its notch and agent monitor were removed here;
-  its installer, docs and macOS surfaces live on.
+  its installer, docs and macOS surfaces live on :)
 - **[Quickshell](https://quickshell.outfoxxed.me/)** (outfoxxed) — the QML runtime the shell is
   written in.
 - **[Hyprland](https://hyprland.org/)** (vaxry and contributors) — the compositor, and the
@@ -224,8 +219,6 @@ rest of the desktop is end-4's. What is new here is the glass.
 - **HyprGlass** — prior art; it showed a Hyprland plugin could do this at all.
 - **[Hyprtasking](https://github.com/raybbian/hyprtasking)** (raybbian) — taught the plugin to
   honour render modifiers, so glass stops floating over the overview.
-- **[Hyprfabricated](https://github.com/tr1xem/hyprfabricated)** (tr1xem) — notch interaction
-  techniques, studied in the OpenAgentIsland era.
 - **[WhiteSur](https://github.com/vinceliuice/WhiteSur-icon-theme)** (vinceliuice) — the icon theme.
 - **Apple**, WWDC25 *Meet Liquid Glass* — the design targets. Behaviour described,
   never implementation.
