@@ -31,7 +31,8 @@ removed. Do not rebuild either unless asked.
   hot-reload. Edit the repo, never through the symlink. A plain install
   **copies** instead, so deleting the clone cannot break someone's desktop.
 - **Shell config file:** `~/.config/brollios/config.json` (separate from ii's).
-- **Plugin binary:** `~/brolli-glass.so`, loaded from `custom/execs.lua`.
+- **Plugin binary:** `~/.local/share/brolli-glass/brolli-glass.so`, with the
+  material beside it. Loaded from `custom/execs.lua`.
 
 ### Hard rules
 

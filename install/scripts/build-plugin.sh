@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Build the Brolli-Glass Hyprland plugin and install it to ~/brolli-glass.so.
+# Build the Brolli-Glass Hyprland plugin and install it, with its material,
+# to ~/.local/share/brolli-glass/.
 #
 # The plugin is pinned to the exact Hyprland build it is compiled against, so
 # it is built here rather than shipped. custom/execs.lua loads that path at
 # startup (hl.plugin.load).
 set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../plugin/src" && pwd)"
-OUT="$HOME/brolli-glass.so"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/brolli-glass"
+OUT="$DATA/brolli-glass.so"
 
 command -v g++ >/dev/null || { echo "brolli-glass: g++ not found" >&2; exit 1; }
 pkg-config --exists hyprland || { echo "brolli-glass: hyprland headers not found (install hyprland-devel/hyprland)" >&2; exit 1; }
@@ -16,7 +18,6 @@ echo "brolli-glass: building against $(pkg-config --modversion hyprland)"
 # where to find it. Two paths are baked in: this checkout, so editing the .frag
 # and reloading works; and a copy outside the repo, so the glass survives the
 # clone being deleted after install.
-DATA="${XDG_DATA_HOME:-$HOME/.local/share}/brolli-glass"
 mkdir -p "$DATA"
 cp "$SRC/brolliglass.frag" "$DATA/brolliglass.frag"
 

@@ -3,9 +3,11 @@
 -- Brolli-Glass: the compositor plugin that draws the shell's liquid glass.
 -- Loaded from config, not from the shell, so the config reload that every
 -- plugin load triggers happens during startup, before anything is on screen.
--- install.sh builds it to ~/brolli-glass.so; skipped if that is missing.
-if is_file_exists(HOME .. "/brolli-glass.so") then
-  hl.plugin.load(HOME .. "/brolli-glass.so")
+-- install.sh builds it to ~/.local/share/brolli-glass/; skipped if missing.
+local BROLLI_GLASS = (os.getenv("XDG_DATA_HOME") or (HOME .. "/.local/share"))
+  .. "/brolli-glass/brolli-glass.so"
+if is_file_exists(BROLLI_GLASS) then
+  hl.plugin.load(BROLLI_GLASS)
 end
 
 hl.on("hyprland.start", function ()

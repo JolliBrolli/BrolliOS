@@ -66,4 +66,5 @@ someone else's wallpaper path came through untouched.
 
 Everything else goes: every artifact restored from backup, the injected blocks
 stripped out of files that are not ours, the plugin unloaded from the running
-session, and `~/brolli-glass.so` plus its material deleted.
+session, and `~/.local/share/brolli-glass/` (the plugin and its material)
+deleted.

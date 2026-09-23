@@ -146,12 +146,12 @@ base_present() {
 
 # The compositor plugin that draws the shell's glass. Built here, not shipped:
 # it is pinned to the exact Hyprland build it compiles against. custom/execs.lua
-# loads ~/brolli-glass.so at startup. A failure here is not fatal -- the shell
+# loads it from ~/.local/share/brolli-glass at startup. Not fatal -- the shell
 # runs without glass -- so it warns rather than dies.
 build_plugin() {
     step "Glass plugin"
     if (( DRY_RUN )); then
-        info "would build plugin/src/brolli-glass.cpp -> ~/brolli-glass.so"
+        info "would build plugin/src/brolli-glass.cpp -> ~/.local/share/brolli-glass/"
         return
     fi
     if "$REPO_DIR/install/scripts/build-plugin.sh"; then
@@ -182,7 +182,7 @@ install_fonts() {
 uninstall_extras() {
     step "Plugin and fonts"
     local data="${XDG_DATA_HOME:-$HOME/.local/share}"
-    local targets=("$HOME/brolli-glass.so" "$data/brolli-glass" "$data/fonts/brolli-glass")
+    local targets=("$data/brolli-glass" "$data/fonts/brolli-glass")
     local t removed=0
 
     if (( DRY_RUN )); then
@@ -193,7 +193,7 @@ uninstall_extras() {
     else
         # Unload before deleting: Hyprland has the .so mapped, and unloading a
         # file that is no longer there takes the session down with it.
-        if hyprctl plugin unload "$HOME/brolli-glass.so" >/dev/null 2>&1; then
+        if hyprctl plugin unload "$data/brolli-glass/brolli-glass.so" >/dev/null 2>&1; then
             ok "plugin unloaded"
         fi
         for t in "${targets[@]}"; do

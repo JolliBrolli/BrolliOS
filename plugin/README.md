@@ -161,22 +161,25 @@ hyprctl glassuniform <name> <v> [v v v]
 ## Build
 
 ```bash
-cd plugin/src
-g++ -shared -fPIC --no-gnu-unique -std=c++26 -O2 -DWLR_USE_UNSTABLE \
-    $(pkg-config --cflags hyprland pixman-1 libdrm) brolli-glass.cpp -o brolli-glass.so
-hyprctl plugin unload ~/brolli-glass.so      # ALWAYS unload before replacing the file
-cp brolli-glass.so ~/brolli-glass.so.new && mv ~/brolli-glass.so.new ~/brolli-glass.so
-hyprctl plugin load ~/brolli-glass.so
+install/scripts/build-plugin.sh
+hyprctl plugin load ~/.local/share/brolli-glass/brolli-glass.so
 ```
 
-`custom/execs.lua` loads `~/brolli-glass.so` at startup (`hl.plugin.load`), so
-it comes back after a reboot. Never `cp` over the file while it is loaded: the
-running Hyprland has it mapped, and the next unload crashes the session.
+The script compiles against the installed Hyprland headers, unloads any running
+copy, and installs the plugin and its material to
+`~/.local/share/brolli-glass/`. `custom/execs.lua` loads it from there at
+startup, so it comes back after a reboot.
 
-Pinned to the exact Hyprland build; rebuild after every update. **Never load a
-build made against stock headers into the patched `Hyprland-brolli` binary** —
-that patch changes the struct layouts the plugin is compiled against, and the
-failure mode is memory corruption, not a clean error.
+Never `cp` over the `.so` while it is loaded: the running Hyprland has it
+mapped, and the next unload crashes the session. The script writes beside it
+and renames, which is why it exists.
+
+The material is read from disk at load, so editing `brolliglass.frag` and
+reloading the plugin is enough — no rebuild. The checkout's copy wins when it
+is there; the installed copy is the fallback for a machine where the repo has
+been deleted.
+
+Pinned to the exact Hyprland build; rebuild after every Hyprland update.
 
 ---
 
