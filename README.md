@@ -116,21 +116,50 @@ Details in [docs/requirements.md](docs/requirements.md).
 ## Install
 
 ```sh
-git clone https://github.com/patheonsceo/Brolli-Glass.git ~/Projects/Brolli-Glass
+git clone https://github.com/JolliBrolli/Brolli-Glass.git ~/Projects/Brolli-Glass
 cd ~/Projects/Brolli-Glass
 ./install.sh
 ```
 
-`install.sh` installs the end-4 base (delegated to end-4's own installer), then
-every artifact listed in [`manifest.toml`](manifest.toml), then builds the plugin
-to `~/brolli-glass.so`. Everything it writes is backed up first, so
-`./install.sh --uninstall` puts the machine back.
+That is the whole desktop: the end-4 base (delegated to end-4's own installer),
+then every artifact in [`manifest.toml`](manifest.toml) — icons, theme, GTK and
+Qt settings, wallpapers, Hyprland config, terminal and launcher — then the glass
+plugin, built to `~/brolli-glass.so`. Everything it writes is backed up before
+the first change, so `./install.sh --uninstall` puts the machine back.
+
+### Already have a rice you like?
+
+`--profile shell` takes **only the shell**, and touches nothing else you have
+set up:
 
 ```sh
-./install.sh --skip-base      # you already run end-4
+./install.sh --profile shell --skip-base
+```
+
+That installs exactly two things — `~/.config/quickshell/BrolliOS` (a symlink to
+this repo) and a marker-delimited block in end-4's `variables.lua` pointing
+Quickshell at it — then builds the plugin. Your icons, GTK theme, wallpapers,
+terminal, keybinds and **your monitor config** are left alone.
+
+The one thing to add yourself, since it lives in the Hyprland config this
+profile skips:
+
+```lua
+-- ~/.config/hypr/custom/execs.lua
+hl.plugin.load(os.getenv("HOME") .. "/brolli-glass.so")
+```
+
+Without it the shell runs, but with no glass until you load the plugin by hand.
+
+### Every flag
+
+```sh
 ./install.sh --profile shell  # just the shell and its Hyprland glue
+./install.sh --skip-base      # you already run end-4
 ./install.sh --dry-run        # print every action, change nothing
-./install.sh --status         # what is installed
+./install.sh --status         # how the live system differs from the repo
+./install.sh --uninstall      # restore the original backup
+./install.sh --help
 ```
 
 Relog when it finishes (or `pkill -x qs; setsid -f qs -c BrolliOS`). The plugin
@@ -220,7 +249,7 @@ material on both layers" rule that became the no-glass-on-glass check. Behaviour
 described, never implementation; everything about *how* ours works came from the
 sources above and from measuring on this machine.
 
-**[OpenAgentIsland](https://github.com/patheonsceo/Dynamic-island-for-arch)** — this repo's direct
+**[OpenAgentIsland](https://github.com/patheonsceo/openagentisland)** — this repo's direct
 ancestor and my own earlier take on the same idea: the manifest-driven installer,
 the docs layout, and the first versions of the dock, menubar and desktop widgets.
 Its notch/Dynamic Island (whose interaction techniques were studied from

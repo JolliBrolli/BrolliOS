@@ -12,7 +12,10 @@ command -v g++ >/dev/null || { echo "brolli-glass: g++ not found" >&2; exit 1; }
 pkg-config --exists hyprland || { echo "brolli-glass: hyprland headers not found (install hyprland-devel/hyprland)" >&2; exit 1; }
 
 echo "brolli-glass: building against $(pkg-config --modversion hyprland)"
+# The material is read from disk at load time, so the plugin needs to know
+# where this checkout is. Baked in here rather than hardcoded in the source.
 g++ -shared -fPIC --no-gnu-unique -std=c++26 -O2 -DWLR_USE_UNSTABLE \
+    -DBROLLI_SHADER_PATH="\"$SRC/brolliglass.frag\"" \
     $(pkg-config --cflags hyprland pixman-1 libdrm) \
     "$SRC/brolli-glass.cpp" -o "$SRC/brolli-glass.so"
 

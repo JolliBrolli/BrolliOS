@@ -282,7 +282,13 @@ static GLuint compile(GLenum type, const char* src) {
 
 static GLint       aUv = -1;
 // Read from disk, so tuning the material needs a plugin reload, not a rebuild.
-static std::string g_shaderPath = "/home/Joel/Projects/Brolli-Glass/plugin/src/brolliglass.frag";
+// The path is baked in at build time by install/scripts/build-plugin.sh, which
+// points it at the .frag sitting beside this file in whatever checkout built
+// the plugin. The fallback only matters for a hand-rolled compile.
+#ifndef BROLLI_SHADER_PATH
+#define BROLLI_SHADER_PATH "brolliglass.frag"
+#endif
+static std::string g_shaderPath = BROLLI_SHADER_PATH;
 
 static GLuint link(const char* vertSrc, const std::string& fragSrc, const char* label) {
     GLuint v = compile(GL_VERTEX_SHADER, vertSrc), f = compile(GL_FRAGMENT_SHADER, fragSrc.c_str());
