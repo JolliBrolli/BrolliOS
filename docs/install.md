@@ -39,6 +39,7 @@ Use `island` when you already have a rice you like and only want the notch.
 | --- | --- |
 | `--profile full\|shell` | Which set of artifacts to install |
 | `--skip-base` | Do not touch the end-4 base; assume it works |
+| `--link` | Symlink the shell to the repo instead of copying it (development) |
 | `--dry-run` | Show every action, perform none |
 | `--status` | Report how your machine differs from the repo |
 | `-y`, `--yes` | Assume yes to all prompts |

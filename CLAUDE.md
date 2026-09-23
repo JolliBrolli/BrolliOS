@@ -26,8 +26,10 @@ removed. Do not rebuild either unless asked.
   - `plugin/src/brolliglass.frag` — the material, read from disk at plugin load
   - `install.sh` + `manifest.toml` + `install/` — the installer
   - `PROGRESS.md` — work log, newest first. Keep it current.
-- **Runtime:** `~/.config/quickshell/BrolliOS` is a **symlink** to
-  `quickshell/`. Edit the repo, never through the symlink.
+- **Runtime:** `~/.config/quickshell/BrolliOS`. On this machine it is a
+  **symlink** to `quickshell/` (installed with `--link`), so edits to the repo
+  hot-reload. Edit the repo, never through the symlink. A plain install
+  **copies** instead, so deleting the clone cannot break someone's desktop.
 - **Shell config file:** `~/.config/brollios/config.json` (separate from ii's).
 - **Plugin binary:** `~/brolli-glass.so`, loaded from `custom/execs.lua`.
 

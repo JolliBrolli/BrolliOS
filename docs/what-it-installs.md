@@ -14,7 +14,7 @@ changing anything.
 
 | What | Where it goes | How | Profile |
 | --- | --- | --- | --- |
-| `shell` | `~/.config/quickshell/BrolliOS` | symlink | shell, full |
+| `shell` | `~/.config/quickshell/BrolliOS` | copy | shell, full |
 | `hypr-qsconfig` | `~/.config/hypr/hyprland/variables.lua` | inject | shell, full |
 | `icons` | `~/.local/share/icons` | extract | full |
 | `theme-matugenglass` | `~/.local/share/themes/MatugenGlass` | copy | full |
@@ -45,8 +45,6 @@ changing anything.
 **`merge-json`** — Only the listed keys are written into your existing JSON. Everything else in the file survives.
 
 **`setting`** — Individual keys are written. Other keys in the file are untouched.
-
-**`symlink`** — Linked, not copied — the destination points back into the repo.
 
 ## Settings this rice claims
 

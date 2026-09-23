@@ -183,7 +183,8 @@ def test_manifest():
 id = "shell"
 src = "quickshell"
 dest = "~/.config/quickshell/BrolliOS"
-mode = "symlink"
+mode = "copy"
+dev_mode = "symlink"
 profile = ["shell", "full"]
 
 [[artifact]]
@@ -205,6 +206,17 @@ post = "fc-cache -f"
         check("select shell", [a.id for a in select(arts, "shell")] == ["shell"])
         check("select full", [a.id for a in select(arts, "full")] == ["shell", "fonts"])
         check("select unknown profile is empty", select(arts, "nope") == [])
+
+        # The shell is COPIED by default so deleting the clone cannot break a
+        # working desktop, and only linked when someone asks for it.
+        check("shell copied by default", arts[0].mode == "copy")
+        check("dev_mode captured", arts[0].dev_mode == "symlink")
+        check("row without dev_mode is unaffected", arts[1].dev_mode == "")
+
+        _rejects(tmp,
+                 '[[artifact]]\nid="x"\nsrc="a"\ndest="~/a"\nmode="copy"\n'
+                 'dev_mode="teleport"\n',
+                 "unknown dev_mode", "unknown dev_mode rejected")
 
         _rejects(tmp,
                  '[[artifact]]\nid="x"\nsrc="a"\ndest="~/a"\nmode="copy"\n'

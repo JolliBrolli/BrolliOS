@@ -84,10 +84,11 @@ def markers_for(path):
 
 
 class Engine:
-    def __init__(self, repo, home, dry_run=False):
+    def __init__(self, repo, home, dry_run=False, link=False):
         self.repo = os.path.abspath(repo)
         self.home = home
         self.dry_run = dry_run
+        self.link = link
         data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local/share")
         self.backup_root = os.path.join(data_home, "brolli-glass-backups")
         self.original = os.path.join(self.backup_root, "original")
@@ -213,10 +214,39 @@ class Engine:
             return
         self._mkdirs(os.path.dirname(dest))
         if os.path.isdir(src):
+            self._clear_stale_links(src, dest)
             shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
         else:
             shutil.copy2(src, dest)
         ok(f"{art.id}: copied to {self.short(dest)}")
+
+    @staticmethod
+    def _clear_stale_links(src, dest):
+        """Remove destination entries that the source replaces with a symlink.
+
+        copytree(symlinks=True) recreates a link with os.symlink, which fails
+        outright if something is already at that path -- so re-installing over
+        an existing copy died halfway through. The shell tree is full of icon
+        aliases, so this is the common case, not an edge one.
+
+        Only paths that are links in the SOURCE are touched: whatever else the
+        destination directory holds is the user's and is merged around, which
+        is the whole reason copytree runs with dirs_exist_ok.
+        """
+        if not os.path.isdir(dest):
+            return
+        for root, dirs, files in os.walk(src):
+            rel = os.path.relpath(root, src)
+            for name in dirs + files:
+                if not os.path.islink(os.path.join(root, name)):
+                    continue
+                d = os.path.join(dest, name) if rel == "." else os.path.join(dest, rel, name)
+                if not os.path.lexists(d):
+                    continue
+                if os.path.isdir(d) and not os.path.islink(d):
+                    shutil.rmtree(d)
+                else:
+                    os.remove(d)
 
     def do_extract(self, art, src, dest):
         self.backup(dest)
@@ -331,7 +361,14 @@ class Engine:
     # ── commands ──────────────────────────────────────────────────────
 
     def artifacts(self, profile):
-        return select(load(self.manifest_path), profile)
+        rows = select(load(self.manifest_path), profile)
+        # Resolved here rather than at the call sites so install, verify and
+        # status can never disagree about how a row was laid down.
+        if self.link:
+            for art in rows:
+                if art.dev_mode:
+                    art.mode = art.dev_mode
+        return rows
 
     def install(self, profile):
         step(f"Installing profile '{profile}'")
@@ -473,10 +510,13 @@ def main():
     ap.add_argument("--repo", required=True)
     ap.add_argument("--profile", default="full")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--link", action="store_true",
+                    help="Symlink rows that declare a dev_mode, instead of copying "
+                         "them. For working on the repo; pass it to status too.")
     args = ap.parse_args()
 
     home = os.environ.get("HOME") or die("HOME is not set")
-    engine = Engine(args.repo, home, args.dry_run)
+    engine = Engine(args.repo, home, args.dry_run, args.link)
     if args.dry_run:
         warn("DRY RUN — nothing will be modified")
 

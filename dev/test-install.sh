@@ -29,8 +29,8 @@ echo
 # A pre-existing config the installer must merge into rather than clobber.
 # These two values stand in for everything that belongs to the machine and not
 # to the rice: where their wallpaper is, and anything personal.
-mkdir -p "$SCRATCH/.config/illogical-impulse"
-cat > "$SCRATCH/.config/illogical-impulse/config.json" <<'JSON'
+mkdir -p "$SCRATCH/.config/brollios"
+cat > "$SCRATCH/.config/brollios/config.json" <<'JSON'
 {
   "background": { "wallpaperPath": "/their/wallpaper.jpg" },
   "personal": { "keep": "me" },
@@ -66,7 +66,7 @@ def check(name, cond):
     if not cond:
         failed.append(name)
 
-cfg = json.load(open(f"{home}/.config/illogical-impulse/config.json"))
+cfg = json.load(open(f"{home}/.config/brollios/config.json"))
 check("their wallpaper survived the merge",
       cfg["background"]["wallpaperPath"] == "/their/wallpaper.jpg")
 check("their personal settings survived",
@@ -80,8 +80,27 @@ check("injection added our block", "brolli-glass" in css)
 check("exactly one block after two installs",
       css.count(">>> brolli-glass") == 1)
 
-link = f"{home}/.config/quickshell/BrolliOS"
-check("shell symlink exists", os.path.islink(link))
+shell = f"{home}/.config/quickshell/BrolliOS"
+check("shell is a real directory, not a link",
+      os.path.isdir(shell) and not os.path.islink(shell))
+check("shell survives the repo being deleted",
+      os.path.isfile(f"{shell}/shell.qml"))
+
+# The point of copying rather than linking: nothing in the installed shell may
+# reach back into the checkout, or `rm -rf` on the clone takes the desktop with
+# it. Links *within* the tree are fine -- the icon aliases are exactly that.
+escapes = []
+for root, dirs, files in os.walk(shell):
+    for name in dirs + files:
+        path = os.path.join(root, name)
+        if os.path.islink(path):
+            target = os.path.realpath(path)
+            if not target.startswith(os.path.realpath(shell) + os.sep):
+                escapes.append((path, target))
+check("no link escapes the installed shell", not escapes)
+if escapes:
+    for path, target in escapes[:5]:
+        print(f"       {path} -> {target}")
 
 gtk3 = open(f"{home}/.config/gtk-3.0/settings.ini").read()
 check("gtk decoration layout set", "close,minimize,maximize:" in gtk3)
@@ -102,7 +121,7 @@ def check(name, cond):
     if not cond:
         failed.append(name)
 
-cfg = json.load(open(f"{home}/.config/illogical-impulse/config.json"))
+cfg = json.load(open(f"{home}/.config/brollios/config.json"))
 check("config.json restored exactly",
       cfg == {"background": {"wallpaperPath": "/their/wallpaper.jpg"},
               "personal": {"keep": "me"},
@@ -112,7 +131,7 @@ css = open(f"{home}/.config/matugen/templates/gtk-3.0/gtk.css").read()
 check("our block is gone", "brolli-glass" not in css)
 check("their css survived uninstall", ".custom { color: red; }" in css)
 
-check("shell symlink removed",
+check("shell removed on uninstall",
       not os.path.lexists(f"{home}/.config/quickshell/BrolliOS"))
 
 sys.exit(1 if failed else 0)

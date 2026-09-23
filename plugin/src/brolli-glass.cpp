@@ -122,6 +122,17 @@ void main() {
 }
 )";
 
+// A baked-in fallback path may start with ~, since the build does not know the
+// home directory of whoever ends up running the plugin.
+static std::string expandHome(std::string path) {
+    if (path.rfind("~/", 0) == 0) {
+        const char* home = getenv("HOME");
+        if (home)
+            path = std::string(home) + path.substr(1);
+    }
+    return path;
+}
+
 static std::string readShaderFile(const std::string& path) {
     std::ifstream f(path);
     if (!f)
@@ -281,12 +292,22 @@ static GLuint compile(GLenum type, const char* src) {
 }
 
 static GLint       aUv = -1;
-// Read from disk, so tuning the material needs a plugin reload, not a rebuild.
-// The path is baked in at build time by install/scripts/build-plugin.sh, which
-// points it at the .frag sitting beside this file in whatever checkout built
-// the plugin. The fallback only matters for a hand-rolled compile.
+
+// The material is read from disk, so tuning it needs a plugin reload rather
+// than a rebuild. Two candidate paths, tried in order:
+//
+//   1. BROLLI_SHADER_PATH -- the .frag in the checkout that built this plugin,
+//      baked in by install/scripts/build-plugin.sh. Editing the repo and
+//      reloading therefore shows up immediately, which is the whole point.
+//   2. The copy build-plugin.sh installs outside the repo. This is what keeps
+//      the glass working for someone who clones, installs and then deletes the
+//      clone -- a normal thing to do, and it used to leave the plugin with no
+//      material at all.
 #ifndef BROLLI_SHADER_PATH
 #define BROLLI_SHADER_PATH "brolliglass.frag"
+#endif
+#ifndef BROLLI_SHADER_FALLBACK
+#define BROLLI_SHADER_FALLBACK "brolliglass.frag"
 #endif
 static std::string g_shaderPath = BROLLI_SHADER_PATH;
 
@@ -321,9 +342,17 @@ static bool ensureProgram() {
     if (g_prog)
         return true;
 
-    const std::string SRC = readShaderFile(g_shaderPath);
+    std::string SRC = readShaderFile(g_shaderPath);
     if (SRC.empty()) {
-        Log::logger->log(Log::ERR, "[brolli-glass] no material at {}", g_shaderPath);
+        // The checkout is gone, or this is an installed-only machine.
+        const std::string FALLBACK = expandHome(BROLLI_SHADER_FALLBACK);
+        SRC = readShaderFile(FALLBACK);
+        if (!SRC.empty())
+            g_shaderPath = FALLBACK;
+    }
+    if (SRC.empty()) {
+        Log::logger->log(Log::ERR, "[brolli-glass] no material at {} or {}",
+                         g_shaderPath, expandHome(BROLLI_SHADER_FALLBACK));
         return false;
     }
 

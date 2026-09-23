@@ -137,9 +137,9 @@ set up:
 ./install.sh --profile shell --skip-base
 ```
 
-That installs exactly two things — `~/.config/quickshell/BrolliOS` (a symlink to
-this repo) and a marker-delimited block in end-4's `variables.lua` pointing
-Quickshell at it — then builds the plugin. Your icons, GTK theme, wallpapers,
+That installs exactly two things — a copy of the shell at
+`~/.config/quickshell/BrolliOS` and a marker-delimited block in end-4's
+`variables.lua` pointing Quickshell at it — then builds the plugin. Your icons, GTK theme, wallpapers,
 terminal, keybinds and **your monitor config** are left alone.
 
 The one thing to add yourself, since it lives in the Hyprland config this
@@ -157,6 +157,7 @@ Without it the shell runs, but with no glass until you load the plugin by hand.
 ```sh
 ./install.sh --profile shell  # just the shell and its Hyprland glue
 ./install.sh --skip-base      # you already run end-4
+./install.sh --link           # symlink the shell to this repo (development)
 ./install.sh --dry-run        # print every action, change nothing
 ./install.sh --status         # how the live system differs from the repo
 ./install.sh --uninstall      # restore the original backup
@@ -167,13 +168,20 @@ Relog when it finishes (or `pkill -x qs; setsid -f qs -c BrolliOS`). The plugin
 loads from `~/.config/hypr/custom/execs.lua` at startup; to load it now,
 `hyprctl plugin load ~/brolli-glass.so`.
 
+**The clone is disposable.** The shell is copied into
+`~/.config/quickshell/BrolliOS`, and the plugin keeps its own copy of the
+material, so `rm -rf` on the checkout leaves a working desktop — it just means
+updates need another clone. Working *on* the shell is the opposite case: install
+with `--link` and the repo is symlinked in, so edits hot-reload and the checkout
+has to stay put.
+
 ---
 
 ## Layout
 
 | path | what |
 |---|---|
-| `quickshell/` | the shell — installed as `~/.config/quickshell/BrolliOS` (a symlink; edit the repo) |
+| `quickshell/` | the shell — **copied** to `~/.config/quickshell/BrolliOS` on install |
 | `plugin/src/brolli-glass.cpp` | the Hyprland plugin |
 | `plugin/src/brolliglass.frag` | the material, read from disk at plugin load |
 | `install.sh`, `manifest.toml`, `install/` | the installer |

@@ -17,6 +17,7 @@
 #   ./install.sh                    full install
 #   ./install.sh --profile shell    just the shell and its Hyprland glue
 #   ./install.sh --skip-base        you already run end-4
+#   ./install.sh --link             symlink the shell to this repo (development)
 #   ./install.sh --dry-run          print every action, change nothing
 #   ./install.sh --status           show how the live system differs from the repo
 #   ./install.sh --uninstall        restore the original backup
@@ -28,6 +29,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="$REPO_DIR/install/engine.py"
 
 PROFILE="full"
+LINK=0
 DRY_RUN=0
 SKIP_BASE=0
 DO_UNINSTALL=0
@@ -62,6 +64,9 @@ usage() {
 Options:
   --profile P          full (default) or shell
   --skip-base          Don't touch the end-4 base; assume it is already working
+  --link               Symlink the shell to this repo instead of copying it,
+                       so edits here hot-reload. For working on the shell --
+                       the repo then has to stay put. Pass it to --status too.
   --dry-run            Show every action without performing any of them
   --status             Report how the live system differs from the repo
   -y, --yes            Assume yes for all prompts (non-interactive)
@@ -75,6 +80,7 @@ while [[ $# -gt 0 ]]; do
         --profile)     PROFILE="${2:?--profile needs a value}"; shift ;;
         --profile=*)   PROFILE="${1#*=}" ;;
         --skip-base)   SKIP_BASE=1 ;;
+        --link)        LINK=1 ;;
         --dry-run)     DRY_RUN=1 ;;
         --status)      DO_STATUS=1 ;;
         -y|--yes)      ASSUME_YES=1 ;;
@@ -94,6 +100,7 @@ engine() {
     local cmd="$1"; shift
     local args=("$cmd" --repo "$REPO_DIR" "$@")
     (( DRY_RUN )) && args+=(--dry-run)
+    (( LINK )) && args+=(--link)
     python3 "$ENGINE" "${args[@]}"
 }
 

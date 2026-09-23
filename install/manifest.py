@@ -29,6 +29,10 @@ class Artifact:
     post: str = ""
     # merge-json only: the key paths this rice owns and may write.
     keys: list = field(default_factory=list)
+    # The mode to use instead when installing with --link, for a row that can
+    # sensibly be linked back to the repo during development. Empty means the
+    # row is installed the same way either way.
+    dev_mode: str = ""
     # Reserved. Empty means every distro. The Ubuntu port adds values here
     # rather than introducing a new concept in the engine.
     distro: list = field(default_factory=list)
@@ -56,6 +60,11 @@ def load(path):
                 f"otherwise be silently ignored"
             )
 
+        if row.get("dev_mode") and row["dev_mode"] not in MODES:
+            raise ManifestError(
+                f"{where}: unknown dev_mode '{row['dev_mode']}' "
+                f"(expected one of {sorted(MODES)})"
+            )
         if row["mode"] not in MODES:
             raise ManifestError(
                 f"{where}: unknown mode '{row['mode']}' (expected one of {sorted(MODES)})"

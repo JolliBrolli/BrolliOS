@@ -24,14 +24,19 @@
 # ── the shell ─────────────────────────────────────────────────────────
 
 [[artifact]]
-id      = "shell"
-src     = "quickshell"
-dest    = "~/.config/quickshell/BrolliOS"
-mode    = "symlink"
-profile = ["shell", "full"]
-# quickshell/ stays at the REPO ROOT rather than moving under config/, which
-# would be tidier. The live symlink points here and tracks main, so moving the
-# directory would break the running desktop on the next pull. See the spec, §3.
+id       = "shell"
+src      = "quickshell"
+dest     = "~/.config/quickshell/BrolliOS"
+mode     = "copy"
+dev_mode = "symlink"
+profile  = ["shell", "full"]
+# COPIED, not linked. Clone, install, delete the clone is a normal thing to do,
+# and a symlink here turns it into a desktop that no longer starts. The copy is
+# a real Quickshell config directory: `qs -c BrolliOS` works with the repo gone.
+#
+# --link swaps this back to a symlink, which is what you want while working on
+# the shell: edit the repo, Quickshell hot-reloads. Updating a copied install
+# means re-running the installer.
 
 [[artifact]]
 id      = "hypr-qsconfig"

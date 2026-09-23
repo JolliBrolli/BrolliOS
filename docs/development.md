@@ -4,9 +4,13 @@ _Working on the shell without putting your own desktop at risk._
 
 ## The rule
 
-Your live desktop's config symlink follows the **main** checkout. So work on the
-shell happens in a git worktree, rendered by a nested compositor, never against
-the running session.
+Install with `./install.sh --link` to work on the shell: the repo is symlinked
+into `~/.config/quickshell/BrolliOS` instead of copied, so edits hot-reload.
+(A plain install copies, so that deleting the clone cannot break a desktop.)
+
+That symlink follows the **main** checkout, so work on the shell happens in a
+git worktree, rendered by a nested compositor, never against the running
+session.
 
 ```bash
 dev/nested.sh              # worktree for nested/<current-branch>
