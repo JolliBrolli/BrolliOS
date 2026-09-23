@@ -63,9 +63,9 @@ Item {
         id: pill
         anchors.centerIn: parent
         radius: height / 2
-        color: Qt.rgba(Appearance.colors.colOnLayer0.r,
-                       Appearance.colors.colOnLayer0.g,
-                       Appearance.colors.colOnLayer0.b, 0.10)
+        // Follows usedColor so it stays visible when the menubar's text
+        // turns dark over a light backdrop.
+        color: Qt.rgba(root.usedColor.r, root.usedColor.g, root.usedColor.b, 0.10)
         implicitWidth: dotRow.implicitWidth + 16
         implicitHeight: 20
 

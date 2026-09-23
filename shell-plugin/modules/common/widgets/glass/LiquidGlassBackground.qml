@@ -59,5 +59,17 @@ Item {
         target: root
         layerNamespace: root.glassNamespace
         radius: root.cornerRadiusOverride
+        darkText: glassSample.light
+    }
+
+    // Adaptive text: black or white by the average colour of this panel's
+    // finished glass, measured by the plugin (see GlassSample). Read by
+    // AdaptiveGlassText / AdaptiveGlassSymbol through their glassRoot.
+    readonly property bool adaptiveReady: glassSample.ready
+    readonly property color adaptiveColor: glassSample.textColor
+    GlassSample {
+        id: glassSample
+        target: root
+        layerNamespace: root.glassNamespace
     }
 }

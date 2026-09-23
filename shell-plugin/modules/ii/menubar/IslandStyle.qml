@@ -26,4 +26,13 @@ Singleton {
     readonly property color subtextColor: "#9AA0AA"     // secondary text
     readonly property color accent: "#8AB4F8"           // blue tint (current workspace, highlights)
     readonly property real inactiveOpacity: 0.45        // unused / dim elements
+
+    // Adaptive text on the dropdowns' glass. Only one dropdown is ever open,
+    // so the open one (IslandPopup) writes the colour measured from its own
+    // glass here and every menu reads it. Rule and colours: GlassSample.
+    property color adaptiveText: "#F7F7F7"
+    readonly property color fg: adaptiveText
+    readonly property color subFg: Qt.rgba(adaptiveText.r, adaptiveText.g, adaptiveText.b, 0.62)
+    readonly property color hoverFill: Qt.rgba(adaptiveText.r, adaptiveText.g, adaptiveText.b, 0.075)
+    readonly property color divider: Qt.rgba(adaptiveText.r, adaptiveText.g, adaptiveText.b, 0.14)
 }

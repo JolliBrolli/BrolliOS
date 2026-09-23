@@ -23,8 +23,12 @@ RowLayout {
     // light mode (black overlay) — same "highlight = stands out" intent,
     // opposite direction, matching how the tint already flips (see
     // tintColor in GlassTest.qml / SearchWidget.qml).
+    // Added to every chip's opacity while the glass squash is working
+    // (SearchWidget's chipBoost).
+    property real chipBoost: 0
     function chipColor(alpha) {
-        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, alpha) : Qt.rgba(0, 0, 0, alpha);
+        const a = Math.min(1, alpha + root.chipBoost);
+        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, a) : Qt.rgba(0, 0, 0, a);
     }
 
     enum SearchPrefixType { Action, App, Clipboard, Emojis, Math, ShellCommand, WebSearch, DefaultSearch }
@@ -88,6 +92,9 @@ RowLayout {
         focus: GlobalStates.overviewOpen
         font.pixelSize: Appearance.font.pixelSize.small
         placeholderText: Translation.tr("Search, calculate or run")
+        // Still a dim placeholder, just brighter: halfway from the default
+        // colSubtext toward normal text.
+        placeholderTextColor: ColorUtils.mix(Appearance.colors.colSubtext, Appearance.colors.colOnLayer0, 0.5)
         implicitWidth: root.searchingText == "" ? Appearance.sizes.searchWidthCollapsed : Appearance.sizes.searchWidth
 
         Behavior on implicitWidth {
@@ -188,3 +195,4 @@ RowLayout {
         }
     }
 }
+

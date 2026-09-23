@@ -5,6 +5,86 @@ lives in `NOTES.md`.
 
 ---
 
+## OPEN: the screen "dim" / bump (unsolved, 2026-09-22)
+
+Joel sees a brief whole-screen dim -- "normal, slight dim, immediate back to
+normal", not a ramp -- a few seconds after login, and roughly 9-12s after the
+start of any command/shell restart. He describes it as "something only just
+loaded". Happens with the glass plugin NOT loaded, so it is not ours, but it
+is unexplained.
+
+Ruled out by measurement (recorder: scratchpad/rec.py, probe.py):
+- **Backlight**: /sys/class/backlight/amdgpu_bl1 `brightness` AND
+  `actual_brightness` sampled every ~2ms across a restart: never changed.
+- **Rendered picture**: whole-screen average colour (plugin colour sampler
+  registered over 0,0 2880x1800 on the menubar layer, ~10Hz) held steady
+  through the event; the only dip is the shell's own layers remapping.
+- **Hyprland colour pipeline**: no CTM/gamma/monitor/colour-management event
+  at the time (hyprland.log, live-tailed and timestamped).
+- **Layers**: no layer opened/closed (socket2 openlayer/closelayer).
+- **Config reloads**: Joel confirmed it is not `hyprctl reload`, not
+  `hyprpm reload`. (Every plugin load AND unload does trigger a full config
+  reload -- Hyprland PluginSystem.cpp:135/193 -- but that is not this.)
+- **Night light**: replayed the exact startup CTM sequence; Joel: "not it".
+- **hypridle**: no short timer (lock 15min / dpms 20min / suspend 25min).
+- **Idle vs active**: happens while moving the mouse too, so not inactivity.
+
+Not yet checked: the panel itself (Samsung OLED automatic brightness
+limiting), ASUS firmware/sensor-driven dimming (the laptop has a proximity
+sensor: hid-sensor-hub + iio-sensor-proxy), asusd. None of these are visible
+to software, which matches every measurement above coming back clean.
+
+---
+
+## 2026-09-21 (evening) — Selectable materials; widget cut-outs and overview fixed
+
+**Status:** the plugin can draw one of three materials, picked in
+Settings > Liquid glass: Original (`liquidglasstest.frag`), Lens, and Pasted
+lens (the Aghajari recreation Joel pasted, its constants on sliders). Joel
+prefers Pasted lens. Open issue: it looks off on long panels like the dock,
+because it is built around a centre point (see Next).
+
+### Done
+- **Material switch**: `hyprctl glassopt material main|lens|aghajari|shoji`,
+  driven from the settings page (`liquidGlass.material`). Experiments live in
+  `plugin/src/experimental/`.
+- **Pasted lens sliders** (`agh*` keys): depth 0.3, strength 1.0, blur 1.2,
+  chroma 3.0, chroma fade-in 0.02, tint 0.90 -- the originals, so defaults
+  are pixel-identical to the paste.
+- **Lens** (`lens*` keys): the Aghajari look on ShojiWM's edge logic
+  (smoothed distance-field gradient, coherence, pull capped at the rim).
+  Rejected by eye so far; kept.
+- **Settings page**: material picker, and each material's sliders in its own
+  collapsible tray.
+- **Widget cut-outs fixed** (verified by Joel + counter): 363 -> 0.
+  Cause: `CRenderPass::render` grows damage 2.5 x oneBlurRadius (200px here)
+  around our live-blur elements AFTER per-panel gating, repainting wallpaper
+  over skipped neighbours 16px away. Now decided once per frame at
+  RENDER_BEGIN for every panel on the monitor (closure over that growth).
+- **Glass over the Hyprtasking overview fixed** (verified by Joel): the glass
+  now applies Hyprland's render modifier (translate/scale), so it draws
+  inside the workspace tile with its widget.
+
+### Gotchas hit
+- **Crashed the live session** by `cp`-ing over a loaded `~/glass4.so`
+  (dlsym on the rewritten mapping during unload). Always: unload, then copy
+  (temp file + `mv`), then load -- as separate steps.
+- Why Aghajari's shader showed content from the wrong side on our panels:
+  its pull is `glassSize * 0.5` -- the edge samples the CENTRE. 60px on the
+  120x80 demo, 240-500px on ours.
+- Any lens rim deeper than the corner radius must either fold along the
+  corner diagonals ("split into four") or round the corners off. Measured on
+  a 480x205 widget with 22px corners: seam-free up to ~30px rim.
+
+### Next
+- Pasted lens on long panels (dock): its centre-point pull reads wrong on a
+  wide pill. Find how Apple's dock avoids it, before changing anything.
+- Re-measure power: neighbour panels now redraw together; Pasted lens does
+  75 texture taps per pixel.
+- Regression checks (multi-monitor, scaled display, lock/unlock, cursor).
+
+---
+
 ## 2026-09-21 — Real material running in the plugin; glass costs +0.1–0.5 W
 
 **Status:** the plugin runs Joel's actual `liquidglasstest.frag` and the look

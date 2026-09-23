@@ -27,7 +27,7 @@ Scope {
     // empty region so it takes no input, exactly like the Rectangle did.
     PanelWindow {
         id: dimWindow
-        visible: GlobalStates.overviewOpen || dimScrim.opacity > 0
+        visible: (GlobalStates.overviewOpen && Config.options.overview.dimBackground) || dimScrim.opacity > 0
         WlrLayershell.namespace: "quickshell:overviewDim"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -45,7 +45,7 @@ Scope {
             id: dimScrim
             anchors.fill: parent
             color: "black"
-            opacity: GlobalStates.overviewOpen ? 0.35 : 0.0
+            opacity: GlobalStates.overviewOpen && Config.options.overview.dimBackground ? 0.35 : 0.0
             visible: opacity > 0
             Behavior on opacity {
                 animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)

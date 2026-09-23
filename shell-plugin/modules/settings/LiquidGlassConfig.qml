@@ -24,6 +24,62 @@ ContentPage {
         }
     }
 
+    // A collapsible group of sections -- one per material, so only the sliders
+    // for the material being tuned are on screen. ContentSection itself has no
+    // collapse; this wraps it rather than changing it for every settings page.
+    component Tray: ColumnLayout {
+        id: tray
+        property string title
+        property string icon: ""
+        property bool expanded: false
+        default property alias trayData: trayBody.data
+        Layout.fillWidth: true
+        spacing: 8
+
+        RippleButton {
+            Layout.fillWidth: true
+            implicitHeight: 48
+            buttonRadius: Appearance.rounding.normal
+            colBackground: Appearance.colors.colLayer2
+            colBackgroundHover: Appearance.colors.colLayer2Hover
+            colRipple: Appearance.colors.colLayer2Active
+            onClicked: tray.expanded = !tray.expanded
+            contentItem: RowLayout {
+                spacing: 8
+                OptionalMaterialSymbol {
+                    Layout.leftMargin: 12
+                    icon: tray.icon
+                    iconSize: Appearance.font.pixelSize.hugeass
+                }
+                StyledText {
+                    Layout.fillWidth: true
+                    text: tray.title
+                    font.pixelSize: Appearance.font.pixelSize.larger
+                    font.weight: Font.Medium
+                    color: Appearance.colors.colOnSecondaryContainer
+                }
+                MaterialSymbol {
+                    Layout.rightMargin: 12
+                    text: "keyboard_arrow_down"
+                    iconSize: Appearance.font.pixelSize.hugeass
+                    color: Appearance.colors.colOnLayer2
+                    rotation: tray.expanded ? 180 : 0
+                    Behavior on rotation {
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            id: trayBody
+            Layout.fillWidth: true
+            Layout.leftMargin: 8
+            visible: tray.expanded
+            spacing: 16
+        }
+    }
+
     readonly property var lg: Config.options.appearance.liquidGlass
     readonly property var lgDefaults: Config.options.appearance.liquidGlassDefaults
 
@@ -43,7 +99,10 @@ ContentPage {
             rimHighlightStrength: lg.rimHighlightStrength, rimHighlightWidth: lg.rimHighlightWidth, rimDiagonalReach: lg.rimDiagonalReach, chromaticAberration: lg.chromaticAberration,
             baseOpacity: lg.baseOpacity, minFloor: lg.minFloor, busynessStrength: lg.busynessStrength,
             tint: lg.tint, tintStrength: lg.tintStrength,
-            chipOpacity: lg.chipOpacity, chipOpacityHover: lg.chipOpacityHover
+            chipOpacity: lg.chipOpacity, chipOpacityHover: lg.chipOpacityHover, chipSquashBoost: lg.chipSquashBoost,
+            lensRimPx: lg.lensRimPx, lensStrength: lg.lensStrength, lensBlur: lg.lensBlur, lensChroma: lg.lensChroma, lensTint: lg.lensTint,
+            aghDepth: lg.aghDepth, aghStrength: lg.aghStrength, aghBlur: lg.aghBlur, aghChroma: lg.aghChroma, aghEdge: lg.aghEdge, aghTint: lg.aghTint, aghStretch: lg.aghStretch, aghSquash: lg.aghSquash, aghPush: lg.aghPush, aghBody: lg.aghBody,
+            tintDock: lg.tintDock, tintWidgets: lg.tintWidgets, tintSpotlight: lg.tintSpotlight, tintDockStrength: lg.tintDockStrength, tintWidgetsStrength: lg.tintWidgetsStrength, tintSpotlightStrength: lg.tintSpotlightStrength
         };
     }
 
@@ -55,7 +114,10 @@ ContentPage {
         target.rimHighlightStrength = s.rimHighlightStrength; target.rimHighlightWidth = s.rimHighlightWidth; target.rimDiagonalReach = s.rimDiagonalReach; target.chromaticAberration = s.chromaticAberration;
         target.baseOpacity = s.baseOpacity; target.minFloor = s.minFloor; target.busynessStrength = s.busynessStrength;
         target.tint = s.tint; target.tintStrength = s.tintStrength;
-        target.chipOpacity = s.chipOpacity; target.chipOpacityHover = s.chipOpacityHover;
+        target.chipOpacity = s.chipOpacity; target.chipOpacityHover = s.chipOpacityHover; target.chipSquashBoost = s.chipSquashBoost;
+        target.lensRimPx = s.lensRimPx; target.lensStrength = s.lensStrength; target.lensBlur = s.lensBlur; target.lensChroma = s.lensChroma; target.lensTint = s.lensTint;
+        target.aghDepth = s.aghDepth; target.aghStrength = s.aghStrength; target.aghBlur = s.aghBlur; target.aghChroma = s.aghChroma; target.aghEdge = s.aghEdge; target.aghTint = s.aghTint; target.aghStretch = s.aghStretch; target.aghSquash = s.aghSquash; target.aghPush = s.aghPush; target.aghBody = s.aghBody;
+        target.tintDock = s.tintDock; target.tintWidgets = s.tintWidgets; target.tintSpotlight = s.tintSpotlight; target.tintDockStrength = s.tintDockStrength; target.tintWidgetsStrength = s.tintWidgetsStrength; target.tintSpotlightStrength = s.tintSpotlightStrength;
     }
 
     // Resets every slider back to liquidGlassDefaults — NOT hardcoded
@@ -109,6 +171,181 @@ ContentPage {
             onClicked: revertLastReset()
         }
     }
+
+    ContentSection {
+        icon: "layers"
+        title: Translation.tr("Material")
+
+        ConfigSelectionArray {
+            currentValue: lg.material
+            onSelected: newValue => { lg.material = newValue; }
+            options: [
+                { displayName: Translation.tr("Original"), icon: "water_drop", value: "main" },
+                { displayName: Translation.tr("Lens"), icon: "lens_blur", value: "lens" },
+                { displayName: Translation.tr("Pasted lens"), icon: "science", value: "aghajari" }
+            ]
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Which glass the compositor draws. \"Lens\" is the Aghajari-style recreation adapted for panels of any size; \"Pasted lens\" is the recreation exactly as you pasted it, with its numbers on sliders (at their defaults it is unchanged). Each material has its own tray of sliders below.")
+        }
+    }
+
+    ContentSection {
+        icon: "format_color_fill"
+        title: Translation.tr("Panel tint")
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("A colour mixed over each panel's glass, set separately per panel and applied with any material. As with the original tint: the colour here is used in dark mode; light mode always uses white. Strength 0 = no tint.")
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Dock")
+            Layout.fillWidth: true
+
+            RowLayout {
+                Layout.fillWidth: true
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Tint colour (hex, dark mode only)")
+                    text: lg.tintDock
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        lg.tintDock = text;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintDock = lgDefaults.tintDock; }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                ConfigSlider {
+                    Layout.fillWidth: true
+                    text: Translation.tr("Tint strength")
+                    value: lg.tintDockStrength
+                    usePercentTooltip: true
+                    buttonIcon: "format_color_fill"
+                    from: 0
+                    to: 1
+                    stopIndicatorValues: [lgDefaults.tintDockStrength]
+                    onValueChanged: {
+                        lg.tintDockStrength = value;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintDockStrength = lgDefaults.tintDockStrength; }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Desktop widgets")
+            Layout.fillWidth: true
+
+            RowLayout {
+                Layout.fillWidth: true
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Tint colour (hex, dark mode only)")
+                    text: lg.tintWidgets
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        lg.tintWidgets = text;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintWidgets = lgDefaults.tintWidgets; }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                ConfigSlider {
+                    Layout.fillWidth: true
+                    text: Translation.tr("Tint strength")
+                    value: lg.tintWidgetsStrength
+                    usePercentTooltip: true
+                    buttonIcon: "format_color_fill"
+                    from: 0
+                    to: 1
+                    stopIndicatorValues: [lgDefaults.tintWidgetsStrength]
+                    onValueChanged: {
+                        lg.tintWidgetsStrength = value;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintWidgetsStrength = lgDefaults.tintWidgetsStrength; }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Spotlight")
+            Layout.fillWidth: true
+
+
+            ConfigSwitch {
+                buttonIcon: "contrast"
+                text: Translation.tr("Darken the screen behind Spotlight")
+                checked: Config.options.overview.dimBackground
+                onCheckedChanged: {
+                    Config.options.overview.dimBackground = checked;
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Tint colour (hex, dark mode only)")
+                    text: lg.tintSpotlight
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        lg.tintSpotlight = text;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintSpotlight = lgDefaults.tintSpotlight; }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                ConfigSlider {
+                    Layout.fillWidth: true
+                    text: Translation.tr("Tint strength")
+                    value: lg.tintSpotlightStrength
+                    usePercentTooltip: true
+                    buttonIcon: "format_color_fill"
+                    from: 0
+                    to: 1
+                    stopIndicatorValues: [lgDefaults.tintSpotlightStrength]
+                    onValueChanged: {
+                        lg.tintSpotlightStrength = value;
+                    }
+                }
+                ResetButton {
+                    onReset: function() { lg.tintSpotlightStrength = lgDefaults.tintSpotlightStrength; }
+                }
+            }
+        }
+    }
+
+    Tray {
+        title: Translation.tr("Original material sliders")
+        icon: "water_drop"
+        expanded: lg.material === "main"
 
     ContentSection {
         icon: "water_drop"
@@ -752,7 +989,7 @@ ContentPage {
             wrapMode: Text.Wrap
             font.pixelSize: Appearance.font.pixelSize.smaller
             color: Appearance.colors.colSubtext
-            text: Translation.tr("This is the dark-mode tint — light mode ignores it and always uses white instead, the same way this shell's own text colours already flip between light/dark automatically.")
+            text: Translation.tr("This is the dark-mode tint — light mode ignores it and always uses white instead, the same way this shell's own text colours already flip between light/dark automatically. Note: the dock, desktop widgets and Spotlight each have their own tint under \"Panel tint\" at the top, which takes over from this one on those panels.")
         }
 
         RowLayout {
@@ -790,6 +1027,588 @@ ContentPage {
                 onReset: function() { lg.tintStrength = lgDefaults.tintStrength; }
             }
         }
+    }
+
+    }
+
+    Tray {
+        title: Translation.tr("Lens material sliders")
+        icon: "lens_blur"
+        expanded: lg.material === "lens"
+
+    ContentSection {
+        icon: "lens_blur"
+        title: Translation.tr("Lens")
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Rim width (px)")
+                value: lg.lensRimPx
+                usePercentTooltip: false
+                buttonIcon: "line_curve"
+                from: 4
+                to: 80
+                stopIndicatorValues: [lgDefaults.lensRimPx]
+                onValueChanged: {
+                    lg.lensRimPx = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.lensRimPx = lgDefaults.lensRimPx; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How far in from the edge the glass bends, in pixels (ShojiWM's default, 30). Keep it near the panels' corner radius: much deeper than the corners (widgets have 22px corners) and the bend has to fold along the corner diagonals — the \"split into four\" look. Measured seam-free up to about 30px.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Bend strength")
+                value: lg.lensStrength
+                usePercentTooltip: false
+                buttonIcon: "waves"
+                from: 0
+                to: 1
+                stopIndicatorValues: [lgDefaults.lensStrength]
+                onValueChanged: {
+                    lg.lensStrength = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.lensStrength = lgDefaults.lensStrength; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How far the rim pulls in what's behind it, as a fraction of the rim width. 1 = the very edge shows what sits at the rim's inner edge (ShojiWM caps it there too), so nothing is ever pulled in from across the panel.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Sample softness (px)")
+                value: lg.lensBlur
+                usePercentTooltip: false
+                buttonIcon: "blur_on"
+                from: 0
+                to: 4
+                stopIndicatorValues: [lgDefaults.lensBlur]
+                onValueChanged: {
+                    lg.lensBlur = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.lensBlur = lgDefaults.lensBlur; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Spacing of the recreation's small 5x5 softening under the lens, strongest in the middle. 0 = crisp, and cheapest.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Chromatic split (px)")
+                value: lg.lensChroma
+                usePercentTooltip: false
+                buttonIcon: "gradient"
+                from: 0
+                to: 10
+                stopIndicatorValues: [lgDefaults.lensChroma]
+                onValueChanged: {
+                    lg.lensChroma = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.lensChroma = lgDefaults.lensChroma; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Red/blue fringing right at the edge, pushed along the edge's own direction. 0 = off.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Brightness")
+                value: lg.lensTint
+                usePercentTooltip: true
+                buttonIcon: "brightness_6"
+                from: 0.5
+                to: 1.2
+                stopIndicatorValues: [lgDefaults.lensTint]
+                onValueChanged: {
+                    lg.lensTint = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.lensTint = lgDefaults.lensTint; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Multiplies the glass's colour. The recreation darkens slightly (0.90); 1.0 = neutral.")
+        }
+    }
+    }
+
+    Tray {
+        title: Translation.tr("Pasted lens sliders")
+        icon: "science"
+        expanded: lg.material === "aghajari"
+
+    ContentSection {
+        icon: "science"
+        title: Translation.tr("Pasted lens")
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Stretch along long side")
+                value: lg.aghStretch
+                usePercentTooltip: true
+                buttonIcon: "width"
+                from: 0
+                to: 1
+                stopIndicatorValues: [lgDefaults.aghStretch]
+                onValueChanged: {
+                    lg.aghStretch = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghStretch = lgDefaults.aghStretch; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("0 = exactly the pasted shader: everything bends away from the panel's centre point, which suits round panels but smears sideways along long ones like the dock. 1 = the centre becomes a line along the long side, so long edges bend straight across while the rounded ends behave like the paste. Round and square panels look the same either way.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Distortion depth")
+                value: lg.aghDepth
+                usePercentTooltip: false
+                buttonIcon: "line_curve"
+                from: 0.02
+                to: 0.5
+                stopIndicatorValues: [lgDefaults.aghDepth]
+                onValueChanged: {
+                    lg.aghDepth = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghDepth = lgDefaults.aghDepth; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How far in from the edge the distortion reaches, as a fraction of the panel's short side. Original: 0.3.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Distortion strength")
+                value: lg.aghStrength
+                usePercentTooltip: false
+                buttonIcon: "waves"
+                from: 0
+                to: 2
+                stopIndicatorValues: [lgDefaults.aghStrength]
+                onValueChanged: {
+                    lg.aghStrength = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghStrength = lgDefaults.aghStrength; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How hard the glass pulls what's behind it toward the middle. 1 = original, which pulls the very edge all the way to the centre — on big panels that is what brings content in from the far side. Lower it to keep the pull local.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Softness (px)")
+                value: lg.aghBlur
+                usePercentTooltip: false
+                buttonIcon: "blur_on"
+                from: 0
+                to: 4
+                stopIndicatorValues: [lgDefaults.aghBlur]
+                onValueChanged: {
+                    lg.aghBlur = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghBlur = lgDefaults.aghBlur; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Spacing of the small 5x5 softening, strongest in the middle. Original: 1.2. 0 = crisp.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Chromatic shift (px)")
+                value: lg.aghChroma
+                usePercentTooltip: false
+                buttonIcon: "gradient"
+                from: 0
+                to: 10
+                stopIndicatorValues: [lgDefaults.aghChroma]
+                onValueChanged: {
+                    lg.aghChroma = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghChroma = lgDefaults.aghChroma; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Red/blue split, pointing away from the centre. Original: 3.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Chromatic fade-in")
+                value: lg.aghEdge
+                usePercentTooltip: false
+                buttonIcon: "line_weight"
+                from: 0.001
+                to: 0.2
+                stopIndicatorValues: [lgDefaults.aghEdge]
+                onValueChanged: {
+                    lg.aghEdge = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghEdge = lgDefaults.aghEdge; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How far in from the edge the colour split takes to reach full strength, as a fraction of the short side. Original: 0.02 (almost immediately).")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Brightness")
+                value: lg.aghTint
+                usePercentTooltip: true
+                buttonIcon: "brightness_6"
+                from: 0.5
+                to: 1.2
+                stopIndicatorValues: [lgDefaults.aghTint]
+                onValueChanged: {
+                    lg.aghTint = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghTint = lgDefaults.aghTint; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Multiplies the glass colour. Original: 0.90; 1.0 = neutral.")
+        }
+    }
+    ContentSection {
+        icon: "visibility"
+        title: Translation.tr("Readability")
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Apple's approach: each panel measures what's behind it as a whole and adjusts itself as one — never pixel by pixel, which is what made the old floor stripe. Both at 0 = off.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Contrast squash")
+                value: lg.aghSquash
+                usePercentTooltip: true
+                buttonIcon: "contrast"
+                from: 0
+                to: 1
+                stopIndicatorValues: [lgDefaults.aghSquash]
+                onValueChanged: {
+                    lg.aghSquash = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghSquash = lgDefaults.aghSquash; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("How much a busy backdrop's contrast is flattened behind the glass. Calm backdrops pass through untouched; busier ones get squashed more, up to this amount.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Glass body")
+                value: lg.aghBody
+                usePercentTooltip: true
+                buttonIcon: "light_mode"
+                from: 0
+                to: 0.4
+                stopIndicatorValues: [lgDefaults.aghBody]
+                onValueChanged: {
+                    lg.aghBody = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghBody = lgDefaults.aghBody; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("A faint light of the glass's own. The lens only moves what's behind it around, so over a dark background it was just as dark — a black shape with a rim. This lifts the whole panel evenly, so it reads as a sheet of glass. 0 = off.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Brightness push")
+                value: lg.aghPush
+                usePercentTooltip: false
+                buttonIcon: "brightness_medium"
+                from: 0
+                to: 0.4
+                stopIndicatorValues: [lgDefaults.aghPush]
+                onValueChanged: {
+                    lg.aghPush = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.aghPush = lgDefaults.aghPush; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("Only when needed: once what's behind gets close to the text's own brightness, the glass shifts away from it (darker under white text, lighter under dark text). A backdrop that already contrasts with the text is left alone.")
+        }
+    }
+
+    ContentSection {
+        icon: "line_weight"
+        title: Translation.tr("Rim outline")
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("The white outline from the original material — brightest along the top-left and bottom-right, fading out at the other two corners. Same settings as the rim highlight in the original tray; moving one moves both.")
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Rim highlight")
+                value: lg.rimHighlightStrength
+                usePercentTooltip: true
+                buttonIcon: "line_weight"
+                from: 0
+                to: 0.5
+                stopIndicatorValues: [lgDefaults.rimHighlightStrength]
+                onValueChanged: {
+                    lg.rimHighlightStrength = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.rimHighlightStrength = lgDefaults.rimHighlightStrength; }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Rim highlight width (px)")
+                value: lg.rimHighlightWidth
+                usePercentTooltip: false
+                buttonIcon: "line_weight"
+                from: 0.2
+                to: 6
+                stopIndicatorValues: [lgDefaults.rimHighlightWidth]
+                onValueChanged: {
+                    lg.rimHighlightWidth = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.rimHighlightWidth = lgDefaults.rimHighlightWidth; }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                textWidth: 140
+                text: Translation.tr("Rim highlight line length")
+                value: lg.rimDiagonalReach
+                usePercentTooltip: false
+                buttonIcon: "line_weight"
+                from: 0.2
+                to: 3
+                stopIndicatorValues: [lgDefaults.rimDiagonalReach]
+                onValueChanged: {
+                    lg.rimDiagonalReach = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.rimDiagonalReach = lgDefaults.rimDiagonalReach; }
+            }
+        }
+
+    }
     }
 
     ContentSection {
@@ -844,6 +1663,36 @@ ContentPage {
             ResetButton {
                 onReset: function() { lg.chipOpacityHover = lgDefaults.chipOpacityHover; }
             }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            ConfigSlider {
+                Layout.fillWidth: true
+                text: Translation.tr("Chip boost with squash")
+                value: lg.chipSquashBoost
+                usePercentTooltip: true
+                buttonIcon: "exposure_plus_1"
+                from: 0
+                to: 0.6
+                stopIndicatorValues: [lgDefaults.chipSquashBoost]
+                onValueChanged: {
+                    lg.chipSquashBoost = value;
+                }
+            }
+            ResetButton {
+                onReset: function() { lg.chipSquashBoost = lgDefaults.chipSquashBoost; }
+            }
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.bottomMargin: 4
+            wrapMode: Text.Wrap
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            text: Translation.tr("With the Pasted lens: chips get more opaque as the Readability squash flattens a busy backdrop — added opacity = this × squash × how busy the backdrop is. So they stay visible exactly when the glass is working hardest. 0 = off.")
         }
     }
 }

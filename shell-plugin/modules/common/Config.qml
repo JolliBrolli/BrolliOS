@@ -297,6 +297,51 @@ Singleton {
                     // instead of a separate opaque button.
                     property real chipOpacity: 0.048 // resting alpha
                     property real chipOpacityHover: 0.158 // hovered/selected/focused alpha
+                    // Added to chip opacity as the Pasted lens squash works
+                    // (x squash x backdrop busyness), so chips stay visible.
+                    property real chipSquashBoost: 0.25
+                    // Which material the Hyprland glass plugin draws:
+                    //   "main"     -- liquidglasstest.frag, the sliders above
+                    //   "lens"     -- the Aghajari-style lens, adapted for real
+                    //                 panels (plugin/src/experimental/lens.gles.frag)
+                    //   "aghajari" -- the faithful recreation, for comparison
+                    property string material: "main"
+                    // "lens" material: Aghajari's look on ShojiWM's edge logic
+                    // (see lens.gles.frag). Rim and strength are Shoji's
+                    // defaults; the rest are the Aghajari recreation's.
+                    property real lensRimPx: 30      // rim width, px (fixed, not panel-relative)
+                    property real lensStrength: 1.0  // pull, fraction of the rim width (max 1)
+                    property real lensBlur: 1.2      // 5x5 sample spacing, px; 0 = crisp
+                    property real lensChroma: 3.0    // RGB split at the edge, px
+                    property real lensTint: 0.9      // brightness multiplier
+                    // "aghajari" material: the pasted recreation, unchanged
+                    // except that its constants are these. Defaults = original.
+                    property real aghDepth: 0.3      // distortion band, fraction of the short side
+                    property real aghStrength: 1.0   // multiplier on the glassSize * 0.5 pull
+                    property real aghBlur: 1.2       // 5x5 sample spacing, px
+                    property real aghChroma: 3.0     // RGB split, px
+                    property real aghEdge: 0.02      // how fast the RGB split fades in from the edge
+                    property real aghTint: 0.9       // brightness multiplier
+                    // 0 = bend away from the centre POINT (the paste); 1 = from
+                    // a centre LINE along the long side, for long panels (dock)
+                    property real aghStretch: 0.0
+                    // Readability (per panel, see aghajari.gles.frag): how much
+                    // a busy backdrop's contrast is squashed, and how far the
+                    // glass is nudged away from its text colour. 0/0 = off.
+                    property real aghSquash: 0.5
+                    // Only acts when the backdrop nears the text's brightness.
+                    property real aghPush: 0.0
+                    // A faint light of the glass's own, so it reads as glass
+                    // (not a black hole) over dark content.
+                    property real aghBody: 0.06
+                    // Per-panel tint (any material). Same rule as `tint`: this
+                    // colour in dark mode, white in light mode; strength = mix.
+                    property string tintDock: "#000000"
+                    property real tintDockStrength: 0.0
+                    property string tintWidgets: "#000000"
+                    property real tintWidgetsStrength: 0.0
+                    property string tintSpotlight: "#000000"
+                    property real tintSpotlightStrength: 0.0
                 }
                 // What every ResetButton (and "Reset all") in
                 // LiquidGlassConfig.qml actually resets liquidGlass back
@@ -334,6 +379,28 @@ Singleton {
                     property real tintStrength: 0.0
                     property real chipOpacity: 0.048
                     property real chipOpacityHover: 0.158
+                    property real chipSquashBoost: 0.25
+                    property real lensRimPx: 30
+                    property real lensStrength: 1.0
+                    property real lensBlur: 1.2
+                    property real lensChroma: 3.0
+                    property real lensTint: 0.9
+                    property real aghDepth: 0.3
+                    property real aghStrength: 1.0
+                    property real aghBlur: 1.2
+                    property real aghChroma: 3.0
+                    property real aghEdge: 0.02
+                    property real aghTint: 0.9
+                    property real aghStretch: 0.0
+                    property real aghSquash: 0.5
+                    property real aghPush: 0.0
+                    property real aghBody: 0.06
+                    property string tintDock: "#000000"
+                    property real tintDockStrength: 0.0
+                    property string tintWidgets: "#000000"
+                    property real tintWidgetsStrength: 0.0
+                    property string tintSpotlight: "#000000"
+                    property real tintSpotlightStrength: 0.0
                 }
             }
 
@@ -796,6 +863,8 @@ Singleton {
                 property bool orderRightLeft: false
                 property bool orderBottomUp: false
                 property bool centerIcons: true
+                // Darken the screen behind Spotlight while it is open.
+                property bool dimBackground: true
             }
 
             property JsonObject regionSelector: JsonObject {

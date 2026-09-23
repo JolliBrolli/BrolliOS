@@ -58,7 +58,9 @@ RippleButton {
     // it. The highlighted row covers keyboard AND mouse hover, both via
     // `selected` below.
     function chipColor(alpha) {
-        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, alpha) : Qt.rgba(0, 0, 0, alpha);
+        // + the glass's squash-driven boost (SearchWidget's chipBoost).
+        const a = Math.min(1, alpha + (root.glassRoot?.chipBoost ?? 0));
+        return Appearance.m3colors.darkmode ? Qt.rgba(1, 1, 1, a) : Qt.rgba(0, 0, 0, a);
     }
     colBackground: (root.down || root.keyboardDown || selected)
         ? root.chipColor(Config.options.appearance.liquidGlass.chipOpacityHover)

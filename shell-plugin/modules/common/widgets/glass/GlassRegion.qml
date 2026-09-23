@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 
 /**
  * Tells the Hyprland glass plugin where one glass panel is.
@@ -29,6 +30,25 @@ Item {
     required property string layerNamespace
     // Per-panel corner cap; < 0 uses the material's global maxCornerRadius.
     property real radius: -1
+    // True when this panel's text is dark (GlassSample.light). The material's
+    // readability layer pushes the glass away from its text: lighter under
+    // dark text, darker under light text.
+    property bool darkText: false
+
+    // How busy the backdrop under this panel is (0..1), as the plugin measures
+    // it for the readability squash (glassstats>><id>,<busy>). Lets things
+    // drawn on the glass -- Spotlight's chips -- strengthen with the squash.
+    property real busyness: 0
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event.name !== "glassstats")
+                return;
+            const parts = event.data.split(",");
+            if (parts.length === 2 && parts[0] === root.regionId)
+                root.busyness = parseFloat(parts[1]);
+        }
+    }
 
     // "<session>:<n>" — see GlassUniformBridge.sessionId for why ownership matters.
     readonly property string regionId: GlassUniformBridge.sessionId + ":" + Qt.md5("" + Date.now() + Math.random()).slice(0, 10)
@@ -52,7 +72,8 @@ Item {
 
     readonly property string payload: root.active
         ? [root.regionId, root.layerNamespace, root.pos.x.toFixed(1), root.pos.y.toFixed(1),
-           root.target.width.toFixed(1), root.target.height.toFixed(1), root.radius.toFixed(1)].join(" ")
+           root.target.width.toFixed(1), root.target.height.toFixed(1), root.radius.toFixed(1),
+           root.darkText ? "1" : "0"].join(" ")
         : ""
 
     // THROTTLE, not debounce. restart() on every change was a debounce: during

@@ -138,9 +138,28 @@ Item { // Wrapper
         // Spotlight caps its corners (spotlightMaxCornerRadius) so a tall
         // results list does not get a corner curving into its text.
         GlassRegion {
+            id: spotlightRegion
             target: searchWidgetContent
             layerNamespace: "quickshell:overview"
             radius: Config.options.appearance.liquidGlass.spotlightMaxCornerRadius
+            darkText: spotlightSample.light
+        }
+
+        // Adaptive text for the results (SearchItem's AdaptiveGlassText reads
+        // these through glassRoot): black or white by the average colour of
+        // Spotlight's finished glass, measured by the plugin.
+        readonly property bool adaptiveReady: spotlightSample.ready
+        readonly property color adaptiveColor: spotlightSample.textColor
+        // Extra chip opacity when the squash is working hard (busy backdrop),
+        // so highlights stay visible. Only the Pasted lens has the squash.
+        readonly property real chipBoost: Config.options.appearance.liquidGlass.material === "aghajari"
+            ? Config.options.appearance.liquidGlass.chipSquashBoost
+              * Config.options.appearance.liquidGlass.aghSquash * spotlightRegion.busyness
+            : 0
+        GlassSample {
+            id: spotlightSample
+            target: searchWidgetContent
+            layerNamespace: "quickshell:overview"
         }
 
         Behavior on implicitHeight {
@@ -580,6 +599,7 @@ Item { // Wrapper
 
             SearchBar {
                 id: searchBar
+                chipBoost: searchWidgetContent.chipBoost
                 property real verticalPadding: 4
                 Layout.fillWidth: true
                 Layout.leftMargin: 10
