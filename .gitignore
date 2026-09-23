@@ -1,13 +1,37 @@
-# Build artifacts — the plugin .so is rebuilt from src/ against the installed
-# Hyprland headers, and is pinned to that exact build, so it is never portable
-# enough to be worth committing.
+# ── Build artifacts ───────────────────────────────────────────────────
+# The plugin .so is rebuilt from plugin/src/ against the installed Hyprland
+# headers, and is pinned to that exact build, so it is never portable enough
+# to be worth committing.
 *.so
 *.qsb.tmp
 
-# Logs and scratch captures
+# Python bytecode — install/engine.py and friends. Version- and
+# machine-specific (cpython-314), regenerated on every run.
+__pycache__/
+*.py[cod]
+
+# ── Runtime, scratch and crash output ─────────────────────────────────
 *.log
 dev/shots/
+core
+core.[0-9]*
 
-# Editor/OS noise
+# ── Backups, whether left by tooling or by hand ───────────────────────
+.claude-backups/
+*.bak
+*.orig
+*.rej
+*~
+
+# ── Local, not shared ─────────────────────────────────────────────────
+.claude/settings.local.json
+
+# ── Editor / OS noise ─────────────────────────────────────────────────
 .DS_Store
 *.swp
+*.swo
+.idea/
+.vscode/
+
+# Except this one: it ships with end-4 upstream, so it stays tracked.
+!quickshell/translations/en_US.json.bak
