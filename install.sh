@@ -70,7 +70,8 @@ Options:
   --dry-run            Show every action without performing any of them
   --status             Report how the live system differs from the repo
   -y, --yes            Assume yes for all prompts (non-interactive)
-  --uninstall          Restore the original backup
+  --uninstall          Put the machine back: restore every backup, remove the
+                       plugin and the material, unload it from the session
   -h, --help           This text
 USAGE_EOF
 }
@@ -174,6 +175,41 @@ install_fonts() {
     "$REPO_DIR/install/scripts/fonts.sh" || warn "some fonts are missing — the shell falls back"
 }
 
+# The engine restores what the manifest touched, and nothing else. The plugin
+# and the fonts are built or fetched by scripts rather than being rows, so
+# without this --uninstall leaves the plugin loaded, its material on disk, and
+# the font copies in place.
+uninstall_extras() {
+    step "Plugin and fonts"
+    local data="${XDG_DATA_HOME:-$HOME/.local/share}"
+    local targets=("$HOME/brolli-glass.so" "$data/brolli-glass" "$data/fonts/brolli-glass")
+    local t removed=0
+
+    if (( DRY_RUN )); then
+        info "would unload the plugin from the running Hyprland"
+        for t in "${targets[@]}"; do
+            [[ -e "$t" ]] && info "would remove ${t/#$HOME/\~}"
+        done
+    else
+        # Unload before deleting: Hyprland has the .so mapped, and unloading a
+        # file that is no longer there takes the session down with it.
+        if hyprctl plugin unload "$HOME/brolli-glass.so" >/dev/null 2>&1; then
+            ok "plugin unloaded"
+        fi
+        for t in "${targets[@]}"; do
+            [[ -e "$t" ]] || continue
+            rm -rf "$t"
+            ok "removed ${t/#$HOME/\~}"
+            removed=1
+        done
+        (( removed )) && fc-cache -f >/dev/null 2>&1
+    fi
+
+    info "kept: font packages installed from the AUR (remove them yourself if"
+    info "      you want them gone), and the backups under"
+    info "      ${data/#$HOME/\~}/brolli-glass-backups"
+}
+
 install_base() {
     step "end-4 base"
     if base_present; then
@@ -208,6 +244,7 @@ main() {
 
     if (( DO_UNINSTALL )); then
         engine uninstall
+        uninstall_extras
         ok "Restart your shell and Zen to see the change."
         exit 0
     fi

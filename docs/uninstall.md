@@ -54,3 +54,16 @@ That installs into a throwaway `$HOME`, checks every artifact landed, installs
 again to prove it is idempotent, uninstalls, and then asserts the scratch home
 is byte-for-byte what it was — including that a pre-existing `config.json` with
 someone else's wallpaper path came through untouched.
+
+## What it does not remove
+
+- **Font packages installed from the AUR** (`otf-san-francisco`,
+  `nerd-fonts-sf-mono-ligatures`). They are ordinary packages; remove them with
+  your package manager if you want them gone.
+- **The backups themselves**, under `~/.local/share/brolli-glass-backups`. They
+  are what made the uninstall possible; delete the directory once you are happy.
+- **The end-4 base.** This installer never installed it, so it never removes it.
+
+Everything else goes: every artifact restored from backup, the injected blocks
+stripped out of files that are not ours, the plugin unloaded from the running
+session, and `~/brolli-glass.so` plus its material deleted.

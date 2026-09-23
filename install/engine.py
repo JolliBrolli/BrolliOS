@@ -447,7 +447,8 @@ class Engine:
             cleaned = strip(text, begin, end)
             if cleaned != text:
                 self._write(dest, cleaned)
-                ok(f"stripped our block from {self.short(dest)}")
+                if not self.dry_run:
+                    ok(f"stripped our block from {self.short(dest)}")
 
         injected = {expand_dest(a.dest, self.home)
                     for a in load(self.manifest_path) if a.mode == "inject"}
