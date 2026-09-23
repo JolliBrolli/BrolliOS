@@ -19,11 +19,11 @@ for i = 0, 9 do
 end
 
 -- Hyprvoice push-to-talk: HOLD Right Ctrl to dictate, release to transcribe →
--- text types at the cursor. Fn is EC/firmware-level on this laptop (emits no
--- keycode), so Right Ctrl is the hold key. The island's Hyprvoice service owns
--- `hyprvoice toggle` (via the hyprvoicePtt global shortcut) so the notch
--- animates instantly; the exec fallbacks keep dictation working headless if
--- quickshell is down. Right Ctrl is consumed — use Left Ctrl for shortcuts.
+-- text types at the cursor. Fn is often EC/firmware-level on a laptop and
+-- emits no keycode, so Right Ctrl is the hold key. The shell's Hyprvoice
+-- service owns `hyprvoice toggle` (via the hyprvoicePtt global shortcut) so
+-- the indicator reacts instantly; the exec fallbacks keep dictation working
+-- if quickshell is down. Right Ctrl is consumed — use Left Ctrl for shortcuts.
 -- Added 2026-07-07.
 local qsIsAlive = "qs -c $qsConfig ipc call TEST_ALIVE"
 hl.bind("Control_R", hl.dsp.global("quickshell:hyprvoicePtt"),
@@ -90,7 +90,7 @@ local function float_toggle()
     if not w or not w.floating then return end
 
     -- m.size is the raw mode, before rotation; transforms 1/3/5/7 are the
-    -- 90/270-degree ones, which swap the axes (matters on DP-3).
+    -- 90/270-degree ones, which swap the axes (matters on a rotated monitor).
     local m = w.monitor
     local mw, mh = m.width, m.height
     if m.transform % 2 == 1 then mw, mh = mh, mw end

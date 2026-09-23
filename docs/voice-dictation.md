@@ -75,12 +75,12 @@ bind  = , Control_R, global, quickshell:hyprvoicePtt
 bindr = , Control_R, global, quickshell:hyprvoicePtt
 ```
 The `quickshell:` namespace is your shell's `-c` config name; the above assumes
-you run `qs -c openagentisland`.
+you run `qs -c BrolliOS`.
 
 **Optional headless fallback** — dictate even when the shell isn't running:
 ```ini
-bind  = , Control_R, exec, qs -c openagentisland ipc call TEST_ALIVE || hyprvoice toggle
-bindr = , Control_R, exec, qs -c openagentisland ipc call TEST_ALIVE || hyprvoice toggle
+bind  = , Control_R, exec, qs -c BrolliOS ipc call TEST_ALIVE || hyprvoice toggle
+bindr = , Control_R, exec, qs -c BrolliOS ipc call TEST_ALIVE || hyprvoice toggle
 ```
 `TEST_ALIVE` is **not** a real IPC target you need to implement — it's a liveness
 probe. Any successful `qs` call exits `0`, so `hyprvoice toggle` only fires when
@@ -112,6 +112,6 @@ everything.
 - Shell-side log: `/tmp/hyprvoice-ptt.log`.
 - Exercise it without a keybind:
   ```sh
-  qs -c openagentisland ipc call hyprvoice pttPress
-  qs -c openagentisland ipc call hyprvoice pttRelease
+  qs -c BrolliOS ipc call hyprvoice pttPress
+  qs -c BrolliOS ipc call hyprvoice pttRelease
   ```

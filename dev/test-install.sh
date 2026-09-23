@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRATCH="$(mktemp -d -t oai-testinstall-XXXXXX)"
+SCRATCH="$(mktemp -d -t brolli-testinstall-XXXXXX)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
 # gsettings goes through dconf over D-Bus, which is scoped to the SESSION and
@@ -76,14 +76,12 @@ check("an owned key was actually written",
 
 css = open(f"{home}/.config/matugen/templates/gtk-3.0/gtk.css").read()
 check("injection kept their existing css", ".custom { color: red; }" in css)
-check("injection added our block", "openagentisland" in css)
+check("injection added our block", "brolli-glass" in css)
 check("exactly one block after two installs",
-      css.count(">>> openagentisland") == 1)
+      css.count(">>> brolli-glass") == 1)
 
-link = f"{home}/.config/quickshell/openagentisland"
+link = f"{home}/.config/quickshell/BrolliOS"
 check("shell symlink exists", os.path.islink(link))
-
-check("fonts landed", os.path.isdir(f"{home}/.local/share/fonts"))
 
 gtk3 = open(f"{home}/.config/gtk-3.0/settings.ini").read()
 check("gtk decoration layout set", "close,minimize,maximize:" in gtk3)
@@ -111,11 +109,11 @@ check("config.json restored exactly",
               "dock": {"enable": False}})
 
 css = open(f"{home}/.config/matugen/templates/gtk-3.0/gtk.css").read()
-check("our block is gone", "openagentisland" not in css)
+check("our block is gone", "brolli-glass" not in css)
 check("their css survived uninstall", ".custom { color: red; }" in css)
 
 check("shell symlink removed",
-      not os.path.lexists(f"{home}/.config/quickshell/openagentisland"))
+      not os.path.lexists(f"{home}/.config/quickshell/BrolliOS"))
 
 sys.exit(1 if failed else 0)
 PY

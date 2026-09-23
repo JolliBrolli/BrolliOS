@@ -26,9 +26,9 @@ Some files are not wholly ours — matugen's GTK templates, Zen's `userChrome.cs
 end-4's `variables.lua`. In those, the installer owns only a fenced block:
 
 ```css
-/* >>> openagentisland >>> */
+/* >>> brolli-glass >>> */
 ...
-/* <<< openagentisland <<< */
+/* <<< brolli-glass <<< */
 ```
 
 Uninstall removes exactly that block and leaves the rest of the file alone. This

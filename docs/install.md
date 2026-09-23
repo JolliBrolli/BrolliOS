@@ -5,8 +5,8 @@ _Every flag, what it does, and how to check before you commit._
 ## The normal path
 
 ```bash
-git clone https://github.com/patheonsceo/openagentisland.git
-cd openagentisland
+git clone https://github.com/JolliBrolli/Brolli-Glass.git
+cd Brolli-Glass
 ./install.sh
 ```
 
@@ -65,7 +65,7 @@ is fine and expected; `--status` is how you find out you did.
 Reload the shell:
 
 ```bash
-pkill -x qs; setsid -f qs -c openagentisland
+pkill -x qs; setsid -f qs -c BrolliOS
 ```
 
 Restart Zen if you had it open, so it picks up its traffic lights.

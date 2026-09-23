@@ -1,4 +1,4 @@
--- Nested Hyprland for openagentisland development.
+-- Nested Hyprland for BrolliOS development.
 --
 -- Runs as a Wayland CLIENT of the host compositor, so it appears as an ordinary
 -- window on the real desktop. dev/nested.sh pins that window to workspace 1.
@@ -19,7 +19,7 @@ hl.monitor({
     scale = 1
 })
 
-hl.env("qsConfig", "openagentisland")
+hl.env("qsConfig", "BrolliOS")
 
 -- Former exec-once commands go inside this handler. This is what actually
 -- starts the shell; without it the nested session is an empty compositor.

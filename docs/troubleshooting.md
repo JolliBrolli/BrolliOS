@@ -20,7 +20,7 @@ _Things that go wrong, and what they mean._
 ## The shell will not start
 
 ```bash
-qs -c openagentisland
+qs -c BrolliOS
 ```
 
 Run it in a terminal and read the error. Quickshell reports the exact
@@ -42,7 +42,7 @@ it.
 ## Uninstall says there is no backup
 
 The backup lives at
-`~/.local/share/openagentisland-backups/original/`. If it is gone, uninstall has
+`~/.local/share/brolli-glass-backups/original/`. If it is gone, uninstall has
 nothing to restore from and stops rather than guessing.
 
 ## The Trash icon looks full when it is empty

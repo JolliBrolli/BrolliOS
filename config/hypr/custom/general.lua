@@ -3,7 +3,11 @@
 -- Backups: ~/.config/hypr/.backups/
 -- ============================================================
 
-hl.monitor({ output = "eDP-1", mode = "2880x1800@90", position = "0x0", scale = 1.5 })
+-- Your displays. This is Hyprland's catch-all: every output takes whatever
+-- mode it reports as preferred. Replace it with your own if you need a
+-- specific resolution, refresh rate, position or scale, e.g.
+--   hl.monitor({ output = "eDP-1", mode = "2880x1800@120", position = "0x0", scale = 1.5 })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 
 -- ------------------------------------------------------------
 -- INPUT / POINTER FEEL
@@ -13,7 +17,7 @@ hl.monitor({ output = "eDP-1", mode = "2880x1800@90", position = "0x0", scale = 
 hl.config({
     input = {
         accel_profile = "adaptive",  -- explicit; macOS-style accel (flat feels dead on a trackpad)
-        sensitivity   = 0.12,        -- slight lift; 2880x1800@1.5 makes stock feel sluggish
+        sensitivity   = 0.12,        -- slight lift; stock feels sluggish on a HiDPI screen
 
         touchpad = {
             natural_scroll       = true,
@@ -57,7 +61,7 @@ hl.curve("dragTrack",  { type = "spring", mass = 1, stiffness = 600, dampening =
 hl.curve("outEase",  { type = "bezier", points = { {0.4, 0.0},  {0.7, 1.0}  } })
 hl.curve("outSharp", { type = "bezier", points = { {0.3, 0.0},  {0.8, 0.15} } })
 
--- workspaces — the one you flagged
+-- workspaces
 hl.animation({ leaf = "workspaces",          enabled = true, speed = 3,   spring = "spaceGlide", style = "slide" })
 hl.animation({ leaf = "specialWorkspaceIn",  enabled = true, speed = 3,   spring = "winPop",     style = "slidevert" })
 hl.animation({ leaf = "specialWorkspaceOut", enabled = true, speed = 1.6, bezier = "outEase",    style = "slidevert" })
@@ -72,7 +76,7 @@ hl.animation({ leaf = "border",      enabled = true, speed = 3,   spring = "menu
 hl.animation({ leaf = "fadeIn",  enabled = true, speed = 3,   spring = "menuSnap" })
 hl.animation({ leaf = "fadeOut", enabled = true, speed = 1.4, bezier = "outSharp" })
 
--- layers (menubar, dock, notch, launcher) — crisp, effectively no bounce
+-- layers (menubar, dock, launcher) — crisp, effectively no bounce
 hl.animation({ leaf = "layersIn",      enabled = true, speed = 3,   spring = "menuSnap", style = "popin 92%" })
 hl.animation({ leaf = "layersOut",     enabled = true, speed = 1.2, bezier = "outEase",  style = "popin 95%" })
 hl.animation({ leaf = "fadeLayersIn",  enabled = true, speed = 3,   spring = "menuSnap" })

@@ -375,8 +375,9 @@ the repo as an option, just not the default workflow.
 ## 2026-09-08 — Distribution: manifest-driven installer, vendored desktop, nested harness, docs
 
 **Status:** the repo now installs the whole desktop from one clone and one
-script. Spec in `docs/superpowers/specs/2026-09-08-openagentisland-distribution-design.md`,
-plan in `docs/superpowers/plans/2026-09-08-distribution-rework.md`.
+script. (The design spec and plan that drove it were written under the old
+name and deleted in the 2026-09-23 cleanup; the installer itself is the
+record now.)
 
 ### Done
 

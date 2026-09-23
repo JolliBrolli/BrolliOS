@@ -182,9 +182,9 @@ def test_manifest():
 [[artifact]]
 id = "shell"
 src = "quickshell"
-dest = "~/.config/quickshell/openagentisland"
+dest = "~/.config/quickshell/BrolliOS"
 mode = "symlink"
-profile = ["island", "full"]
+profile = ["shell", "full"]
 
 [[artifact]]
 id = "fonts"
@@ -202,7 +202,7 @@ post = "fc-cache -f"
         check("distro defaults empty", arts[0].distro == [])
         check("keys default empty", arts[0].keys == [])
 
-        check("select island", [a.id for a in select(arts, "island")] == ["shell"])
+        check("select shell", [a.id for a in select(arts, "shell")] == ["shell"])
         check("select full", [a.id for a in select(arts, "full")] == ["shell", "fonts"])
         check("select unknown profile is empty", select(arts, "nope") == [])
 

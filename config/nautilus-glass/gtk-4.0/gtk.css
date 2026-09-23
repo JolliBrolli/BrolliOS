@@ -8,7 +8,10 @@
  * org.gnome.Nautilus in ~/.config/hypr/custom/rules.lua — without it the global
  * blur-off rule leaves this looking see-through rather than frosted.
  */
-@import url("file:///home/topg/.config/gtk-4.0/gtk.css");
+/* Rewritten to your real config path by install/scripts/nautilus-glass-link.sh.
+ * GTK4 CSS has no ~ or variable expansion, so this import has to be absolute,
+ * and an absolute path cannot be shipped. */
+@import url("file:///REWRITTEN-AT-INSTALL/.config/gtk-4.0/gtk.css");
 
 /* The toplevel is the only surface that needs to let the wallpaper through. */
 window,

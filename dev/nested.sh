@@ -7,7 +7,7 @@
 #   dev/nested.sh my-feature      worktree for branch my-feature (created if new)
 #   dev/nested.sh --stop          kill the running nested session
 #
-# The point is isolation. The live desktop's ~/.config/quickshell/openagentisland
+# The point is isolation. The live desktop's ~/.config/quickshell/BrolliOS
 # symlink tracks the MAIN checkout, so anything developed here must not be able
 # to reach it. This builds a shadow XDG tree inside the worktree and points
 # XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_CACHE_HOME at it. The nested shell
@@ -24,7 +24,7 @@ WORKSPACE=1
 # whatever size the host window is, so setting it here is enough.
 NESTED_W=1600
 NESTED_H=900
-STATE="${XDG_RUNTIME_DIR:-/tmp}/openagentisland-nested"
+STATE="${XDG_RUNTIME_DIR:-/tmp}/brollios-nested"
 
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
 step() { printf '\n%s %s\n' "$(c 34 '==>')" "$(c 1 "$*")"; }
@@ -75,7 +75,7 @@ mkdir -p "$CONF/quickshell" "$CONF/illogical-impulse" \
          "$SHADOW/state/quickshell/user/generated" "$SHADOW/cache"
 
 # The shell, from THIS worktree — never from the main checkout.
-ln -sfn "$WT/quickshell" "$CONF/quickshell/openagentisland"
+ln -sfn "$WT/quickshell" "$CONF/quickshell/BrolliOS"
 ok "quickshell -> $(realpath --relative-to="$REPO" "$WT")/quickshell"
 
 # Seed the shell's settings from the repo's shipped overlay, so the nested

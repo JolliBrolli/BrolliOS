@@ -16,7 +16,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE="${XDG_RUNTIME_DIR:-/tmp}/openagentisland-nested"
+STATE="${XDG_RUNTIME_DIR:-/tmp}/brollios-nested"
 OUTDIR="$REPO/dev/shots"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
