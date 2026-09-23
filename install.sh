@@ -32,7 +32,6 @@ DRY_RUN=0
 SKIP_BASE=0
 DO_UNINSTALL=0
 DO_STATUS=0
-WITH_VOICE=0
 ASSUME_YES=0
 
 # ── output ────────────────────────────────────────────────────────────
@@ -63,7 +62,6 @@ usage() {
 Options:
   --profile P          full (default) or shell
   --skip-base          Don't touch the end-4 base; assume it is already working
-  --voice              Print voice-dictation setup instructions
   --dry-run            Show every action without performing any of them
   --status             Report how the live system differs from the repo
   -y, --yes            Assume yes for all prompts (non-interactive)
@@ -77,7 +75,6 @@ while [[ $# -gt 0 ]]; do
         --profile)     PROFILE="${2:?--profile needs a value}"; shift ;;
         --profile=*)   PROFILE="${1#*=}" ;;
         --skip-base)   SKIP_BASE=1 ;;
-        --voice)       WITH_VOICE=1 ;;
         --dry-run)     DRY_RUN=1 ;;
         --status)      DO_STATUS=1 ;;
         -y|--yes)      ASSUME_YES=1 ;;
@@ -193,13 +190,6 @@ install_base() {
     ok "base installed"
 }
 
-show_voice() {
-    (( WITH_VOICE )) || return 0
-    step "Voice dictation"
-    info "Needs the external hyprvoice daemon + a Groq key."
-    info "Full setup: $REPO_DIR/docs/voice-dictation.md"
-}
-
 # ── main ──────────────────────────────────────────────────────────────
 main() {
     printf '%s\n' "${C_BOLD}BrolliOS installer${C_RESET}"
@@ -225,8 +215,6 @@ main() {
     install_fonts
 
     build_plugin
-
-    show_voice
 
     step "Done"
     info "Undo everything:  ./install.sh --uninstall"

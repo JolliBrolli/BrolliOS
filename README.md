@@ -14,7 +14,8 @@
 Two halves that only make sense together:
 
 - **BrolliOS** — a [Quickshell](https://quickshell.outfoxxed.me/)/QML shell (menubar, dock,
-  desktop widgets, Spotlight) built on the [end-4 / illogical-impulse](https://github.com/end-4/dots-hyprland) framework.
+  desktop widgets, Spotlight), forked from [patheonsceo's OpenAgentIsland](https://github.com/patheonsceo/openagentisland)
+  and built on [end-4 / illogical-impulse](https://github.com/end-4/dots-hyprland).
 - **Brolli-Glass** — a Hyprland **plugin** that draws the shell's glass *inside the
   compositor*, mid-frame, on stock Hyprland.
 
@@ -166,12 +167,6 @@ Relog when it finishes (or `pkill -x qs; setsid -f qs -c BrolliOS`). The plugin
 loads from `~/.config/hypr/custom/execs.lua` at startup; to load it now,
 `hyprctl plugin load ~/brolli-glass.so`.
 
-### Voice dictation (optional)
-
-Hold **Right Ctrl** to dictate into the focused window, via the external
-[hyprvoice](https://github.com/leonardotrapani/hyprvoice) daemon + Groq Whisper.
-Setup: [docs/voice-dictation.md](docs/voice-dictation.md).
-
 ---
 
 ## Layout
@@ -199,68 +194,35 @@ Setup: [docs/voice-dictation.md](docs/voice-dictation.md).
 
 ## Credits
 
-This is a small project standing on a lot of other people's work. In the order it
-mattered:
+**Brolli-Glass is a fork of [OpenAgentIsland](https://github.com/patheonsceo/openagentisland) by
+[patheonsceo](https://github.com/patheonsceo)**, which is itself built on
+**[end-4 / dots-hyprland](https://github.com/end-4/dots-hyprland)**. The installer, the docs, and
+the first dock, menubar and desktop widgets are patheonsceo's work; most of the
+rest of the desktop is end-4's. What is new here is the glass.
 
-**[end-4 / dots-hyprland (illogical-impulse)](https://github.com/end-4/dots-hyprland)** — the
-foundation. The Quickshell module layout, the Lua Hyprland config, the package,
-font and service base, and most of the desktop that isn't macOS-shaped: sidebars,
-Control Centre, notifications, OSD, lock, overview, cheatsheet, on-screen
-keyboard. Brolli-Glass is a derivative work of it and stays GPL-3.0 because of it.
+- **[end-4 / dots-hyprland (illogical-impulse)](https://github.com/end-4/dots-hyprland)** — the
+  framework everything sits on, and most of the desktop that isn't macOS-shaped.
+- **[patheonsceo / OpenAgentIsland](https://github.com/patheonsceo/openagentisland)** — the
+  project this is forked from. Its notch and agent monitor were removed here;
+  its installer, docs and macOS surfaces live on.
+- **[Quickshell](https://quickshell.outfoxxed.me/)** (outfoxxed) — the QML runtime the shell is
+  written in.
+- **[Hyprland](https://hyprland.org/)** (vaxry and contributors) — the compositor, and the
+  plugin API that lets the glass be drawn mid-frame without patching it.
+- **[Aghajari](https://www.aghajari.com/publications/liquid-glass/)** — the Liquid Glass
+  recreation this material is built from.
+- **[ShojiWM](https://github.com/bea4dev/shoji)** (bea4dev) — edge handling, and the
+  shell-draws-a-silhouette / compositor-draws-the-glass split.
+- **HyprGlass** — prior art; it showed a Hyprland plugin could do this at all.
+- **[Hyprtasking](https://github.com/raybbian/hyprtasking)** (raybbian) — taught the plugin to
+  honour render modifiers, so glass stops floating over the overview.
+- **[Hyprfabricated](https://github.com/tr1xem/hyprfabricated)** (tr1xem) — notch interaction
+  techniques, studied in the OpenAgentIsland era.
+- **[WhiteSur](https://github.com/vinceliuice/WhiteSur-icon-theme)** (vinceliuice) — the icon theme.
+- **Apple**, WWDC25 *Meet Liquid Glass* — the design targets. Behaviour described,
+  never implementation.
 
-**[Quickshell](https://quickshell.outfoxxed.me/)** (outfoxxed) — the runtime the whole shell is
-written in: layer-shell surfaces, Hyprland IPC, per-monitor screens and the hot
-reload that made every iteration here a save away.
-
-**[Hyprland](https://hyprland.org/)** (vaxry and contributors) — not just the compositor: its
-**plugin API is why this project exists in the cheap form it does**. Custom
-`IPassElement`, the render-stage bus, function hooks and `registerHyprCtlCommand`
-are all upstream, public and unpatched. Reading the renderer itself — how
-`CRenderPass` grows damage around live-blur elements, how `CDamageRing` ages
-buffer damage, how layer popups are walked — is what turned "draw glass mid-frame"
-from an idea into something that survives a real frame loop.
-
-**[Aghajari's Liquid Glass recreation](https://www.aghajari.com/publications/liquid-glass/)** — the
-material's ancestor. The circular lens profile over a rim band, the radial
-displacement, the chromatic split and the tint all come from that write-up. What
-this project added on top: a centre **line** instead of a centre point (so long
-panels like the dock stop smearing sideways), the per-panel readability layer, and
-the same 5×5 Gaussian taken in 9 bilinear samples instead of 25.
-
-**[ShojiWM](https://github.com/bea4dev/shoji)** (bea4dev) — studied for edge handling when the
-first two attempts at corners came out split four ways and rounded off. Its
-island-refract shader is also where the architecture was borrowed from in spirit:
-bea4dev's `LiquidIslandQS` + ShojiWM does the same split this project ended up at
-— the shell draws a silhouette, the compositor draws the glass.
-
-**HyprGlass** — prior art, and the reason a compositor-side plugin was on the table
-at all. It was running on this machine before any of this was written, tinting
-shell surfaces from inside Hyprland; seeing that work is what made "let the
-compositor do it" the obvious route rather than a gamble.
-
-**[Hyprtasking](https://github.com/raybbian/hyprtasking)** (raybbian) — glass rendered over its
-workspace overview until the plugin learned to honour `SRenderModifData`. Its use
-of the render hints pass is what taught this plugin that a surface's box is not
-necessarily where it lands on screen.
-
-**Apple — WWDC25, *Meet Liquid Glass*** — the design targets only: lensing versus
-scattering, tint and dynamic range, light/dark flipping, and the "don't put the
-material on both layers" rule that became the no-glass-on-glass check. Behaviour
-described, never implementation; everything about *how* ours works came from the
-sources above and from measuring on this machine.
-
-**[OpenAgentIsland](https://github.com/patheonsceo/openagentisland)** — this repo's direct
-ancestor and my own earlier take on the same idea: the manifest-driven installer,
-the docs layout, and the first versions of the dock, menubar and desktop widgets.
-Its notch/Dynamic Island (whose interaction techniques were studied from
-[Hyprfabricated](https://github.com/tr1xem/hyprfabricated)) and its Claude-agent monitor were
-removed here — git history still has them.
-
-**Also used:** the [WhiteSur icon theme](https://github.com/vinceliuice/WhiteSur-icon-theme)
-(vinceliuice), which is bundled; Google Sans Flex, SF Pro Display, Liga SF Mono and
-PP Editorial New, which are *not* — they are proprietary, so the installer fetches
-them instead; and optionally [hyprvoice](https://github.com/leonardotrapani/hyprvoice)
-(leonardotrapani) for dictation.
+Fonts are proprietary and not shipped; see [Requirements](docs/requirements.md).
 
 ## License
 

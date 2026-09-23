@@ -18,22 +18,6 @@ for i = 0, 9 do
     hl.unbind("SUPER + ALT + " .. i)
 end
 
--- Hyprvoice push-to-talk: HOLD Right Ctrl to dictate, release to transcribe →
--- text types at the cursor. Fn is often EC/firmware-level on a laptop and
--- emits no keycode, so Right Ctrl is the hold key. The shell's Hyprvoice
--- service owns `hyprvoice toggle` (via the hyprvoicePtt global shortcut) so
--- the indicator reacts instantly; the exec fallbacks keep dictation working
--- if quickshell is down. Right Ctrl is consumed — use Left Ctrl for shortcuts.
--- Added 2026-07-07.
-local qsIsAlive = "qs -c $qsConfig ipc call TEST_ALIVE"
-hl.bind("Control_R", hl.dsp.global("quickshell:hyprvoicePtt"),
-    { ignore_mods = true, description = "Hyprvoice: push-to-talk (hold to dictate)" })
-hl.bind("Control_R", hl.dsp.global("quickshell:hyprvoicePtt"),
-    { ignore_mods = true, release = true })
-hl.bind("Control_R", hl.dsp.exec_cmd(qsIsAlive .. " || hyprvoice toggle"), { ignore_mods = true })
-hl.bind("Control_R", hl.dsp.exec_cmd(qsIsAlive .. " || hyprvoice toggle"),
-    { ignore_mods = true, release = true })
-
 -- ============================================================================
 -- FLOAT/TILE TOGGLE — shrink + center on the way out. Added 2026-08-31.
 --

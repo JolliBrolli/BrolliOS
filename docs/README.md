@@ -18,7 +18,6 @@ Built in [Quickshell](https://quickshell.outfoxxed.me/)/QML on top of
 - [What it installs](what-it-installs.md) — every file it touches
 - [Dock and widgets](dock-and-widgets.md)
 - [Keybinds](keybinds.md)
-- [Voice dictation](voice-dictation.md) — optional push-to-talk
 - [Development](development.md) — working on the shell
 - [Troubleshooting](troubleshooting.md)
 - [Uninstall](uninstall.md)

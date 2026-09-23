@@ -37,10 +37,8 @@ Use `island` when you already have a rice you like and only want the notch.
 
 | Flag | Effect |
 | --- | --- |
-| `--profile full\|island` | Which set of artifacts to install |
+| `--profile full\|shell` | Which set of artifacts to install |
 | `--skip-base` | Do not touch the end-4 base; assume it works |
-| `--agent-hooks` | Enable the Claude Code bridge hooks |
-| `--voice` | Print voice-dictation setup notes |
 | `--dry-run` | Show every action, perform none |
 | `--status` | Report how your machine differs from the repo |
 | `-y`, `--yes` | Assume yes to all prompts |

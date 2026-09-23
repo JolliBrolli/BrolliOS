@@ -59,7 +59,6 @@ fontconfig falls back and the desktop still runs.
 ## Optional extras
 
 - **Zen browser** — gets matching traffic lights automatically if it is installed.
-- **hyprvoice + a Groq key** — for [voice dictation](voice-dictation.md).
 
 ## Other distributions
 
