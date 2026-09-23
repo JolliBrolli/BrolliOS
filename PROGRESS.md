@@ -28,6 +28,12 @@ patched Hyprland's `no_self_capture` any more -- stock Hyprland + the plugin.
   scale back explicitly.
 
 ### Next
+- **Apple's Liquid Glass animations**, applied to everything that has the
+  glass on it. Then shadows (the other big gap).
+  Build the debug views FIRST for each -- a switch to show the thing alone,
+  its inputs, its progress -- and strip them once Joel is happy. Budget:
+  no new texture reads per pixel without measuring; maths is ~free, samples
+  are not (the blur was 0.37 W before it went to 9 taps).
 - **Rename** (done 2026-09-23): plugin `glass4` -> `Brolli-Glass`
   (`src/brolli-glass.cpp`, `~/brolli-glass.so`), material ->
   `src/brolliglass.frag`. hyprctl commands stay `glass*`. Shell -> BrolliOS

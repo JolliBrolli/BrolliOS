@@ -24,7 +24,7 @@ hl.env("qsConfig", "openagentisland")
 -- Former exec-once commands go inside this handler. This is what actually
 -- starts the shell; without it the nested session is an empty compositor.
 hl.on("hyprland.start", function()
-    hl.exec_cmd("qs -c openagentisland")
+    hl.exec_cmd("qs -c BrolliOS")
 end)
 
 hl.config({

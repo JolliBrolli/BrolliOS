@@ -243,9 +243,6 @@ static bool g_optGate = true;
 // desktop with gating on this must not move.
 static uint64_t g_drawCount = 0;
 static std::unordered_map<std::string, uint64_t> g_drawsByPanel; // panel id -> draws
-// DIAGNOSTIC (temporary): monitor frames begun, and draws per panel per frame.
-static uint64_t g_framesBegun = 0, g_frameId = 0, g_multiDraws = 0;
-static std::unordered_map<std::string, uint64_t> g_lastFrameDrawn;
 
 static void ensureCaptureTexture(int w, int h) {
     if (g_capW == w && g_capH == h && g_capTex)
@@ -368,9 +365,6 @@ class CGlassElement : public IPassElement {
             return {};
         ++g_drawCount;
         ++g_drawsByPanel[m_id];
-        if (g_lastFrameDrawn[m_id] == g_frameId)
-            ++g_multiDraws; // this panel was already drawn in this same frame
-        g_lastFrameDrawn[m_id] = g_frameId;
 
         const auto PMONITOR = g_pHyprRenderer->m_renderData.pMonitor;
         if (!PMONITOR)
@@ -755,8 +749,6 @@ static constexpr auto                           kSampleInterval = std::chrono::m
 // damage -- so the trailing-sample timer fed itself and ran the whole screen
 // at ~63 fps, ~10% GPU idle (2026-09-22).
 static std::unordered_map<const Monitor::CMonitor*, CRegion> g_newDamage;
-// DIAGNOSTIC (temporary): how far each measurement gets.
-static uint64_t g_sampleQueued = 0, g_sampleDrawn = 0, g_sampleSkippedModif = 0, g_sampleSkippedEmpty = 0, g_samplePosted = 0;
 
 static void damageSample(const SGlassRect& r) {
     for (const auto& LS : Desktop::layerState()->layers()) {
@@ -811,7 +803,6 @@ class CSampleElement : public IPassElement {
         if (IT == g_samples.end())
             return {};
         auto& S = IT->second;
-        ++g_sampleDrawn;
 
         for (GLuint t : g_deadSampleTex)
             glDeleteTextures(1, &t);
@@ -824,7 +815,6 @@ class CSampleElement : public IPassElement {
         // box says; measure on the next normal frame instead.
         const auto& MODIF = g_pHyprRenderer->m_renderData.renderModif;
         if (MODIF.enabled && !MODIF.modifs.empty()) {
-            ++g_sampleSkippedModif;
             return {};
         }
         const auto PMONITOR = g_pHyprRenderer->m_renderData.pMonitor;
@@ -834,7 +824,6 @@ class CSampleElement : public IPassElement {
         const float X0 = std::max(0.F, (float)m_box.x), Y0 = std::max(0.F, (float)m_box.y);
         const float X1 = std::min(SW, (float)(m_box.x + m_box.w)), Y1 = std::min(SH, (float)(m_box.y + m_box.h));
         if (X1 - X0 < 1.F || Y1 - Y0 < 1.F) {
-            ++g_sampleSkippedEmpty;
             return {};
         }
 
@@ -896,7 +885,6 @@ class CSampleElement : public IPassElement {
             S.cg   = px[1];
             S.cb   = px[2];
             g_pEventManager->postEvent(SHyprIPCEvent{"glasssample", std::format("{},{},{},{}", m_id, S.cr, S.cg, S.cb)});
-            ++g_samplePosted;
         }
         return {};
     }
@@ -920,9 +908,6 @@ class CSampleElement : public IPassElement {
 // late growth around a panel already being drawn -- repeated until the set
 // stops growing. With Hyprland's blur on, damaged blurred windows grow the
 // same way, so the damage itself is widened before testing.
-// DIAGNOSTIC (temporary): the damage rects that made each panel draw, most
-// recent first, capped. Read with `hyprctl glassopt why`.
-static std::unordered_map<std::string, std::vector<std::string>> g_whyDrawn;
 static std::unordered_set<std::string> g_frameDraw;
 static bool                            g_frameDrawValid = false;
 
@@ -1041,20 +1026,6 @@ static void computeFrameDrawSet(const PHLMONITOR& PMONITOR) {
             const CBox PADDED = paddedBox(C.box);
             if (touched.copy().intersect(PADDED).empty() && grown.copy().intersect(C.box).empty())
                 continue;
-            {
-                std::string why;
-                const auto  HIT = g_pHyprRenderer->m_renderData.damage.copy().intersect(PADDED);
-                if (HIT.empty())
-                    why = "via growth/neighbour";
-                else
-                    HIT.forEachRect([&why](const auto& RC) { why += std::format("[{},{} {}x{}] ", RC.x1, RC.y1, RC.x2 - RC.x1, RC.y2 - RC.y1); });
-                const auto E = g_pHyprRenderer->m_renderData.damage.getExtents();
-                why += std::format(" | frame damage extents {:.0f},{:.0f} {:.0f}x{:.0f}", E.x, E.y, E.w, E.h);
-                auto& V = g_whyDrawn[C.id];
-                V.insert(V.begin(), why);
-                if (V.size() > 12)
-                    V.pop_back();
-            }
             g_frameDraw.insert(C.id);
             touched.add(PADDED);
             grown.add(CRegion{C.box}.expand(GROWTH));
@@ -1119,7 +1090,6 @@ static void queueSamplesFor(const PHLLS& LS, const PHLMONITOR& PMONITOR, bool po
         const CBox BOX = *OPT;
         g_pHyprRenderer->m_renderData.damage.add(BOX);
         g_pHyprRenderer->m_renderPass.add(makeUnique<CSampleElement>(BOX, ID));
-        ++g_sampleQueued;
     }
 }
 
@@ -1167,8 +1137,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
         if (stage == RENDER_BEGIN) {
             g_frameGlassRegion = CRegion{}; // glass drawn so far this frame
-            ++g_framesBegun;
-            ++g_frameId;
             computeFrameDrawSet(g_pHyprRenderer->m_renderData.pMonitor.lock());
             return;
         }
@@ -1243,24 +1211,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
             return out.empty() ? "no uniforms received\n" : out;
         }
 
-        if (key == "samples") {
-            std::string out = std::format("queued {}  drawn {}  skipped(scaled) {}  skipped(offscreen) {}  posted {}\n", g_sampleQueued, g_sampleDrawn, g_sampleSkippedModif, g_sampleSkippedEmpty, g_samplePosted);
-            for (const auto& [ID, S] : g_samples)
-                out += std::format("  {} [{}] {:.0f},{:.0f} {:.0f}x{:.0f} pending={} have={} rgb={},{},{} tex={}x{}\n", ID, S.r.ns, S.r.rect.x, S.r.rect.y, S.r.rect.w, S.r.rect.h, S.pending, S.have, S.cr, S.cg, S.cb, S.tw, S.th);
-            return out;
-        }
-
-        if (key == "why") {
-            std::string out;
-            for (const auto& [ID, V] : g_whyDrawn) {
-                const auto IT = g_rects.find(ID);
-                out += std::format("{} [{}]\n", ID, IT == g_rects.end() ? "?" : IT->second.ns);
-                for (const auto& W : V)
-                    out += "    " + W + "\n";
-            }
-            return out.empty() ? "nothing recorded\n" : out;
-        }
-
         if (!key.empty() && !val.empty()) {
             const bool ON = (val == "on" || val == "1" || val == "true");
             if (key == "gate")
@@ -1274,8 +1224,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         std::string rects;
         for (const auto& [ID, R] : g_rects)
             rects += std::format("    {} [{}] {:.0f},{:.0f} {:.0f}x{:.0f} r={:.0f}  draws={}\n", ID, R.ns, R.rect.x, R.rect.y, R.rect.w, R.rect.h, R.radius, g_drawsByPanel[ID]);
-        return std::format("glass options:\n  material: {}\n  ordering: {}\n  draws since load: {}\n  frames begun: {}  (draws that repeated a panel within one frame: {})\n  gate (redraw only when damage touches a panel): {}\n  scale (capture resolution): {:.2f}\n  material uniforms received: {}\n  panels:\n{}",
-                           g_shaderPath, g_renderLayerHook ? "per-surface (renderLayer hook)" : "stage fallback", g_drawCount, g_framesBegun, g_multiDraws, g_optGate ? "on" : "off", g_capScale, g_uniformValues.size(), rects.empty() ? "    (none -- is the shell sending glassrect?)\n" : rects);
+        return std::format("glass options:\n  material: {}\n  ordering: {}\n  draws since load: {}\n  gate (redraw only when damage touches a panel): {}\n  scale (capture resolution): {:.2f}\n  material uniforms received: {}\n  panels:\n{}",
+                           g_shaderPath, g_renderLayerHook ? "per-surface (renderLayer hook)" : "stage fallback", g_drawCount, g_optGate ? "on" : "off", g_capScale, g_uniformValues.size(), rects.empty() ? "    (none -- is the shell sending glassrect?)\n" : rects);
     }});
 
     // The shell sends each glass panel's rect through this.
