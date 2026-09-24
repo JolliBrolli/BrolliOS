@@ -6,32 +6,41 @@
 #
 # Why this is needed: pam_gnome_keyring unlocks the login keyring using the
 # password you type at the display manager. With SDDM autologin there is no
-# password, so the daemon comes up LOCKED and the first thing wanting a secret
-# prompts you instead.
+# password, so PAM only auto_starts the daemon -- it comes up LOCKED, and the
+# first thing wanting a secret prompts you instead.
 #
-# ── Why this does NOT use --login ────────────────────────────────────────────
-# The obvious implementation, and the one in the shell's own
-# scripts/keyring/unlock.sh, is:
+# ── What works here, and what does not ───────────────────────────────────────
+# Measured on this machine, all with a deliberately wrong password so the file
+# count could be checked afterwards:
 #
-#     killall gnome-keyring-daemon
-#     printf '%s' "$PASSWORD" | gnome-keyring-daemon --daemonize --login
+#   gnome-keyring-daemon --unlock                  forks a SECOND daemon, exits
+#                                                  0, prints nothing, changes
+#                                                  nothing. PAM's daemon keeps
+#                                                  org.freedesktop.secrets, so
+#                                                  the password reaches nobody.
+#   ...--replace --unlock                          same: owner never changes.
+#   kill the daemon, then --daemonize --unlock     becomes the owner. Works.
 #
-# Do not do that. When --login is handed a password that does not open the
-# existing keyring, gnome-keyring makes a NEW one rather than failing, and a
-# few retries leave you with login_1.keyring … login_5.keyring and your real
-# secrets orphaned. That happened on this machine on 2026-09-13; the wreckage
-# is still in ~/.local/share/keyrings/.duplicates-backup-20260913/.
+# So the running daemon has to go first. That is also what the shell's own
+# scripts/keyring/unlock.sh does -- the difference is the flag it restarts
+# with. This uses --unlock, NOT --login:
 #
-# --unlock unlocks the keyring that is already there, in the daemon that is
-# already running. A wrong password fails and changes nothing.
+#   --login is the flag PAM uses to SET UP a session, so part of its job is
+#   making sure the user ends up with a login keyring. Handed a password that
+#   does not open the existing one it creates a new empty keyring rather than
+#   failing, silently and repeatedly: this machine collected login_1.keyring
+#   through login_5.keyring on 2026-09-13, still in
+#   ~/.local/share/keyrings/.duplicates-backup-20260913/.
 #
-# The file count either side is a tripwire: if a keyring file ever appears
-# while this runs, it says so loudly rather than letting it accumulate quietly.
+#   --unlock just fails. Verified: a wrong password left the file count at 1.
+#
+# The count either side is kept as a tripwire anyway.
 #
 set -uo pipefail
 
 KEYRING_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/keyrings"
 LOGIN_KEYRING="$KEYRING_DIR/login.keyring"
+COMPONENTS="secrets,ssh,pkcs11"
 
 count_keyrings() {
     find "$KEYRING_DIR" -maxdepth 1 -name '*.keyring' 2>/dev/null | wc -l
@@ -63,18 +72,36 @@ fi
 
 before="$(count_keyrings)"
 
-printf '%s' "$UNLOCK_PASSWORD" | gnome-keyring-daemon --unlock >/dev/null 2>&1
+# pkill -x will not match: the process name truncates to 15 characters
+# ("gnome-keyring-d") and pkill warns and matches nothing.
+for pid in $(pgrep gnome-keyring 2>/dev/null); do
+    kill "$pid" 2>/dev/null
+done
+for _ in $(seq 1 20); do
+    pgrep gnome-keyring >/dev/null 2>&1 || break
+    sleep 0.05
+done
+
+# Newline-terminated: it reads a line, not a stream.
+printf '%s\n' "$UNLOCK_PASSWORD" | gnome-keyring-daemon \
+    --daemonize --unlock --components="$COMPONENTS" >/dev/null 2>&1
 unset UNLOCK_PASSWORD
+
+# It daemonizes before the collection is on the bus, so give it a moment.
+for _ in $(seq 1 40); do
+    is_unlocked && break
+    sleep 0.05
+done
 
 after="$(count_keyrings)"
 if (( after > before )); then
-    echo "keyring: WARNING — keyring files went from $before to $after." >&2
-    echo "keyring: something created one. Check $KEYRING_DIR before trusting it." >&2
+    echo "keyring: WARNING — keyring files went from ${before} to ${after}." >&2
+    echo "keyring: something created one. Check ${KEYRING_DIR} before trusting it." >&2
 fi
 
 if is_unlocked; then
     echo "keyring: unlocked" >&2
 else
-    echo "keyring: wrong password or daemon not running; left locked, nothing changed" >&2
+    echo "keyring: still locked — the password did not fit the keyring" >&2
     exit 1
 fi
