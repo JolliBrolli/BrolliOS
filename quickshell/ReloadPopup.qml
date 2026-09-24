@@ -14,8 +14,11 @@ Scope {
 		target: Quickshell
 
 		function onReloadCompleted() {
+			// Deliberately silent. A successful reload showed a box at the top of
+			// the screen for one second on every login and every save, which is
+			// noise -- you can see the shell reloaded, because it reloaded.
+			// Failures still surface below, where the message is worth having.
 			root.failed = false;
-			popupLoader.loading = true;
 		}
 
 		function onReloadFailed(error: string) {
