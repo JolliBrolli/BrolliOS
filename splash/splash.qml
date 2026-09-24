@@ -69,6 +69,25 @@ ShellRoot {
         easing.type: Easing.InOutQuad
     }
 
+    // With autologin there is no password at login, so pam_gnome_keyring starts
+    // the keyring daemon LOCKED. This is the first moment a password exists, so
+    // it is the right place to hand one over -- otherwise every secret prompts
+    // later in the session.
+    Process {
+        id: keyringProc
+        onExited: (code, status) => {
+            if (code !== 0)
+                console.warn("[splash] keyring stayed locked (exit " + code + ")");
+        }
+    }
+
+    function unlockKeyring(pw) {
+        keyringProc.exec({
+            environment: ({ "UNLOCK_PASSWORD": pw }),
+            command: ["bash", Qt.resolvedUrl("unlock-keyring.sh").toString().replace("file://", "")]
+        });
+    }
+
     PamContext {
         id: pam
         onPamMessage: if (this.responseRequired) this.respond(root.password)
@@ -76,6 +95,8 @@ ShellRoot {
             if (result === PamResult.Success) {
                 root.unlocking = false;
                 root.authOk = true;
+                // Before the password is cleared below.
+                root.unlockKeyring(root.password);
                 // In preview, prove the password works WITHOUT unlocking
                 // anything -- the whole point is to find out before trusting
                 // this with a real session.
