@@ -52,6 +52,8 @@ def main():
     ap.add_argument("--size", type=float, default=460.0, help="height in px")
     ap.add_argument("--threshold", type=int, default=128, help="luma below this is a line")
     ap.add_argument("--pad", type=int, default=40, help="margin around the shape")
+    ap.add_argument("--fillet", type=float, default=0.5,
+                    help="how much to round the joins, as a fraction of the radius")
     ap.add_argument("--tube", type=float, default=5.0,
                     help="how far the noodle swells beyond the drawn line, px. "
                          "0 leaves the drawing flat.")
@@ -164,11 +166,49 @@ def main():
     apex_y = int(np.nonzero(solid.any(axis=1))[0].min())
     apex_x = int(np.average(np.nonzero(solid[apex_y + 2])[0])) if solid[apex_y + 2].any() else w // 2
 
-    skel = img_mod.skeletonise(bytearray(int(v) for v in L.ravel()), w, h)
+    # The one place the drawing is not followed literally: the handle.
+    #
+    # It is drawn as an OUTLINE -- two parallel lines with the rod's body
+    # between them -- so a centreline through the ink is a centreline through
+    # each line, and the handle comes out as two rails with a strip of film
+    # down the middle. It is meant to be one rod, so the two lines are welded
+    # before the centreline is taken.
+    #
+    # Welding is a morphological closing, and the radius is measured off the
+    # drawing rather than guessed: below the canopy the rod is the only thing
+    # there, so the gap between its two lines is the gap between the two runs
+    # of ink on a row. A closing joins anything less than 2r apart, so half the
+    # gap and a touch more welds the rod and nothing else -- the canopy's
+    # panels are many times wider than that and stay open.
+    def runs_in(row):
+        out, i = [], 0
+        while i < w:
+            if row[i]:
+                j = i
+                while j < w and row[j]:
+                    j += 1
+                out.append((i, j - 1))
+                i = j
+            else:
+                i += 1
+        return out
+
+    gaps = [rr[1][0] - rr[0][1] - 1 for rr in
+            (runs_in(L[y]) for y in range(split + 4, h)) if len(rr) == 2]
+    rod_gap = float(np.median(gaps)) if gaps else 0.0
+    r_weld = rod_gap / 2.0 + 1.5
+
+    welded = L
+    if rod_gap > 1.0:
+        dil = shape_mod.edt(L.ravel(), w, h).reshape(h, w) <= r_weld
+        welded = (shape_mod.edt((~dil).ravel(), w, h).reshape(h, w) > r_weld - 0.5) | L
+    print(f"  rod is {rod_gap:.0f}px across ({len(gaps)} rows), welded with r={r_weld:.1f}")
+
+    skel = img_mod.skeletonise(bytearray(int(v) for v in welded.ravel()), w, h)
     centreline = np.zeros((h, w), dtype=bool)
     for idx in skel:
         centreline[idx // w, idx % w] = True
-    print(f"  centreline: {int(centreline.sum())}px, the drawing's own strokes")
+    print(f"  centreline: {int(centreline.sum())}px")
 
     # edt() returns the distance TO the nearest True, so this is the distance
     # to the centreline. Inverting it would measure the distance to background
@@ -176,17 +216,72 @@ def main():
     # swallows the entire image.
     d_centre = shape_mod.edt(centreline.ravel(), w, h).reshape(h, w)
     tube_r = args.tube + stroke * 0.5
-    sd_tube = (d_centre - tube_r).astype(np.float32)
+    tube_solid = d_centre <= tube_r
+
+    # Round the joins.
+    #
+    # Two tubes meeting is a union of two cylinders, and a union has a sharp
+    # concave crease down the inside of the angle -- which is why a rib landing
+    # on the hem looked like two pieces overlapping rather than one piece
+    # branching. A closing puts a fillet in exactly there: it rounds concave
+    # corners and leaves convex ones alone, so the tubes keep their own width
+    # and only the crotch between them fills in. Unioned back with the tube
+    # afterwards, because an erosion may not give back everything it took.
+    fillet = args.fillet * tube_r
+    if fillet >= 1.0:
+        grown = shape_mod.edt(tube_solid.ravel(), w, h).reshape(h, w) <= fillet
+        tube_solid = (shape_mod.edt((~grown).ravel(), w, h).reshape(h, w)
+                      > fillet - 0.5) | tube_solid
+
+    # A real signed distance for the filleted tube, rather than `d_centre - r`,
+    # which only describes the unfilleted one.
+    dt_out = shape_mod.edt(tube_solid.ravel(), w, h).reshape(h, w)
+    dt_in = shape_mod.edt((~tube_solid).ravel(), w, h).reshape(h, w)
+    sd_tube = np.where(tube_solid, -dt_in, dt_out).astype(np.float32)
     half_tube = np.full((h, w), max(1.0, tube_r), dtype=np.float32)
-    print(f"  noodle radius {tube_r:.1f}px on a {stroke:.1f}px stroke")
+    print(f"  noodle radius {tube_r:.1f}px on a {stroke:.1f}px stroke, "
+          f"joins filleted at {fillet:.1f}px")
 
     # ── what is actually covered ────────────────────────────────────────
     # The drawing's silhouette -- its strokes and everything they enclose --
     # plus the tube where it stands proud of that. The enclosed parts are the
     # canopy's panels and the inside of the rod, which is what makes the rod
     # read as a rod rather than as two rails with a gap down it.
-    solid = solid | (sd_tube < 0.0)
-    print(f"  coverage: silhouette + noodle = {int(solid.sum())}px")
+    #
+    # ...except the rod. Having welded its two lines into one noodle, its
+    # drawn outline must stop being film as well, or the shape it used to have
+    # sits behind the noodle as a slab 22px wide with a 14px noodle down the
+    # middle of it -- the drawing showing through its own replacement. So the
+    # rod's body, and the two lines around it, come out of the silhouette and
+    # the noodle is all the coverage there is there.
+    filled = welded & ~L
+    rod_zone = filled | (L & (shape_mod.edt(filled.ravel(), w, h).reshape(h, w)
+                              <= stroke + 1.5))
+    solid = (solid & ~rod_zone) | tube_solid
+    # Any hole left inside the coverage is an artefact, so close it. Taking
+    # the rod's outline out leaves a speck where its top cap sat inside the
+    # canopy, and the panels are film already -- nothing that is genuinely
+    # inside the umbrella should read as a gap.
+    before = int(solid.sum())
+    _, solid = flood(solid)
+    print(f"  closed {int(solid.sum()) - before}px of holes in the coverage")
+
+    # And any speck left floating is an artefact too. Taking the rod's outline
+    # out leaves fragments of it wherever its body was too narrow to reach
+    # them, and they read as bits of the drawing hanging beside the noodle.
+    # The umbrella is one connected piece, so everything that is not joined to
+    # the main body is debris.
+    comps = img_mod.components(bytearray(int(v) for v in solid.ravel()), w, h)
+    if len(comps) > 1:
+        comps.sort(key=len, reverse=True)
+        keep = np.zeros((h, w), dtype=bool)
+        for idx in comps[0]:
+            keep[idx // w, idx % w] = True
+        print(f"  dropped {len(comps) - 1} floating fragments, "
+              f"{sum(len(c) for c in comps[1:])}px")
+        solid = keep
+    print(f"  coverage: silhouette - rod outline ({int(rod_zone.sum())}px) "
+          f"+ noodle = {int(solid.sum())}px")
 
     # ── signed distance + local half-thickness of the silhouette ────────
     print("distance field...", flush=True)
@@ -302,7 +397,10 @@ def main():
         last, _ = phases[-1]
         phases[-1] = (last, True)           # ...but pause once the ribs are all done
 
-    handle = walk(L & (rows > split))
+    # The welded centreline, not the drawn walls: the noodle runs down the
+    # middle of the rod, so the pen has to as well, or the reveal creeps down
+    # two lines that are no longer there.
+    handle = walk(centreline & (rows > split))
     if handle and (handle[0] // w) > (handle[-1] // w):
         handle.reverse()        # start at the top, where it meets the canopy
     phases.append((handle, False))

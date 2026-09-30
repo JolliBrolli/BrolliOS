@@ -5,6 +5,43 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 (last) — One rod, and joins that branch instead of overlap
+
+### Done
+- **The handle is a single noodle again, and only the handle.** It is the one
+  place the drawing is not followed literally: it is drawn as an outline, so a
+  centreline through the ink runs down each of its two lines and the rod came
+  out as two rails with a strip of film between them. The two lines are welded
+  with a morphological closing before the centreline is taken, and the radius
+  is measured off the drawing rather than guessed -- below the canopy the rod
+  is the only thing there, so the gap between the two runs of ink on a row is
+  the rod's width. 14px across, measured over 184 rows, welded at r=8.5. The
+  canopy's panels are many times wider and stay open, so nothing else changes.
+- **The rod's outline stops being film.** Having welded it, its drawn shape
+  would otherwise sit behind the noodle as a 22px slab with a 14px noodle down
+  the middle of it -- the drawing showing through its own replacement.
+- **Joins are filleted.** Two tubes meeting is a union of two cylinders, and a
+  union has a sharp concave crease down the inside of the angle, which is why
+  a rib landing on the hem read as two pieces overlapping rather than one
+  branching. A closing on the tube puts a fillet exactly there: it rounds
+  concave corners and leaves convex ones alone, so the tubes keep their width
+  and only the crotch fills in. `--fillet` (default 0.5 of the radius).
+  The tube's signed distance is now measured from the filleted solid rather
+  than as `d_centre - r`, which only described the unfilleted one.
+- **Two cleanups the above needed:** holes left inside the coverage are closed
+  (219px -- a speck where the rod's top cap sat inside the canopy), and
+  floating fragments are dropped (6 of them, 846px of rod outline left where
+  its body was too narrow to reach). Stray film below the canopy: 0px.
+- The handle's drawing order now walks the welded centreline rather than the
+  drawn walls, so the reveal follows the noodle that is actually there.
+
+### Verified
+By rendering the tube field as a shaded cylinder and looking at it: the rod is
+one noodle from hem to hook, joins at the apex and the hem branch rather than
+overlap, and the draw-on still runs canopy -> ribs -> handle -> panels.
+
+---
+
 ## 2026-09-30 (later still) — Follow the drawing; stop correcting it
 
 **Status:** the noodle now sits exactly on the artwork. Measured: 0 of 19773
