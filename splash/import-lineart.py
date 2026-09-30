@@ -52,6 +52,13 @@ def main():
     ap.add_argument("--size", type=float, default=460.0, help="height in px")
     ap.add_argument("--threshold", type=int, default=128, help="luma below this is a line")
     ap.add_argument("--pad", type=int, default=40, help="margin around the shape")
+    ap.add_argument("--trace", default="",
+                    help="glob of traced strokes, e.g. 'splash/trace-*.png'. "
+                         "Each file is one stroke, drawn on a copy of the "
+                         "drawing; filename order is drawing order.")
+    ap.add_argument("--trace-flip", default="",
+                    help="1-based stroke numbers to run the other way, "
+                         "comma separated")
     ap.add_argument("--letters", default="OS",
                     help="letters to set either side of the handle; '' for none")
     ap.add_argument("--letter-font", default="futural",
@@ -103,6 +110,40 @@ def main():
     L[p:p + th, p:p + tw] = lines
     LF = np.zeros((h, w), dtype=np.float32)
     LF[p:p + th, p:p + tw] = linef
+
+    # ── the traces: the drawing order, from a hand ──────────────────────
+    # A trace is a guideline, not geometry. It says where the pen goes and in
+    # what order; the shape stays the drawing's. Each file holds one stroke,
+    # drawn on a copy of the drawing, so it goes through exactly the same
+    # crop, scale and pad -- otherwise it would not land on the lines it is
+    # meant to be following.
+    def to_canvas(mask_src, name):
+        if mask_src.shape != a.shape[:2]:
+            sys.exit(f"{os.path.basename(name)} is "
+                     f"{mask_src.shape[1]}x{mask_src.shape[0]}, but "
+                     f"{os.path.basename(args.image)} is {a.shape[1]}x{a.shape[0]}. "
+                     "Trace on a copy of the drawing so the two line up.")
+        m = mask_src[y0:y1, x0:x1]
+        m = np.asarray(Image.fromarray((m * 255).astype(np.uint8))
+                       .resize((tw, th), Image.LANCZOS)).astype(np.float32) / 255.0
+        out = np.zeros((h, w), dtype=bool)
+        out[p:p + th, p:p + tw] = m > 0.35
+        return out
+
+    trace_masks = []
+    if args.trace:
+        import glob as globmod
+        files = sorted(globmod.glob(args.trace))
+        if not files:
+            sys.exit(f"no files match {args.trace!r}")
+        for f in files:
+            ta = np.asarray(Image.open(f).convert("RGBA"))
+            tm = (ta[..., 3] > 128) & (ta[..., :3].mean(axis=2) < args.threshold)
+            if not tm.any():
+                print(f"  {os.path.basename(f)}: nothing drawn, skipped")
+                continue
+            trace_masks.append((os.path.basename(f), to_canvas(tm, f)))
+        print(f"  {len(trace_masks)} traced stroke(s) from {args.trace!r}")
 
     # ── the silhouette: what the outline encloses ───────────────────────
     # Flood from the border through everything that is not a line. Whatever
@@ -466,47 +507,99 @@ def main():
     rows = np.arange(h)[:, None]
     phases = []
 
-    # 1. the canopy outline, followed round rather than swept across
-    canopy_edge = walk(boundary & (rows <= split))
-    phases.append((canopy_edge, True))      # pause after: the canopy is done
+    if trace_masks:
+        # ── the order, taken from the traces ────────────────────────────
+        # Each traced stroke is walked along its own curve, and every point on
+        # it claims the nearest piece of centreline that is not spoken for
+        # yet. So the trace decides WHEN each part of the drawing is written
+        # and in which direction, and the drawing still decides WHERE it is.
+        #
+        # A trace does not have to be accurate or cover everything: whatever
+        # it misses keeps its order from the spread below, which grows out of
+        # the parts that were claimed.
+        near = np.full(w * h, -1, dtype=np.int64)
+        qn = deque()
+        for i in np.nonzero(centreline.ravel())[0]:
+            near[i] = i
+            qn.append(int(i))
+        while qn:
+            i = qn.popleft()
+            x, y = i % w, i // w
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < w and 0 <= ny < h:
+                        j = ny * w + nx
+                        if near[j] < 0:
+                            near[j] = near[i]
+                            qn.append(j)
 
-    # 2. the ribs, one at a time, left to right, each followed from the apex
-    #    outwards. They all meet at the apex, so as drawn they are a single
-    #    connected component -- punch a small hole there and they separate.
-    rib_area = interior & (rows <= split)
-    yy, xx = np.ogrid[:h, :w]
-    apex_hole = (xx - apex_x) ** 2 + (yy - apex_y) ** 2 < (stroke * 5.0) ** 2
-    rib_mask = bytearray(int(v) for v in (rib_area & ~apex_hole).ravel())
-    ribs = [r for r in img_mod.components(rib_mask, w, h) if len(r) > 12]
-    ribs.sort(key=lambda b: sum(i % w for i in b) / len(b))
-    for rib in ribs:
-        m = np.zeros((h, w), dtype=bool)
-        for i in rib:
-            m[i // w, i % w] = True
-        walked = walk(m)
-        # Outwards from the apex, not inwards.
-        if walked and ((walked[0] // w - apex_y) ** 2 + (walked[0] % w - apex_x) ** 2 >
-                       (walked[-1] // w - apex_y) ** 2 + (walked[-1] % w - apex_x) ** 2):
-            walked.reverse()
-        # No pause between ribs: they are one movement, not eighteen.
-        phases.append((walked, False))
+        flip = {int(s) for s in args.trace_flip.replace(" ", "").split(",") if s}
+        claimed = set()
+        for n, (name, tm) in enumerate(trace_masks, 1):
+            pts = walk(tm)
+            if n in flip:
+                pts.reverse()
+            seq = []
+            for i in pts:
+                j = int(near[i])
+                if j >= 0 and j not in claimed:
+                    claimed.add(j)
+                    seq.append(j)
+            phases.append((seq, True))
+            if seq:
+                print(f"  {n}. {name}: {len(pts)}px traced, claimed {len(seq)}px "
+                      f"from ({seq[0] % w},{seq[0] // w}) to "
+                      f"({seq[-1] % w},{seq[-1] // w})")
+        missed = int(centreline.sum()) - len(claimed) - int(letter_mask.sum())
+        if missed > 0:
+            print(f"  {missed}px of centreline no trace reached; it keeps its "
+                  f"order from the spread")
+    else:
+        rows = np.arange(h)[:, None]
+        phases = []
 
-    # 3. the handle: its centreline, followed down the shaft and round the hook
-    if phases:
-        last, _ = phases[-1]
-        phases[-1] = (last, True)           # ...but pause once the ribs are all done
+        # 1. the canopy outline, followed round rather than swept across
+        canopy_edge = walk(boundary & (rows <= split))
+        phases.append((canopy_edge, True))      # pause after: the canopy is done
 
-    # The welded centreline, not the drawn walls: the noodle runs down the
-    # middle of the rod, so the pen has to as well, or the reveal creeps down
-    # two lines that are no longer there.
-    # The letters sit below the canopy too, and they are drawn as their own
-    # phases further down, so they must not be swept up into the handle's walk
-    # as well -- that had the rod's reveal crawling over the O and the S
-    # before either of them was written.
-    handle = walk(centreline & (rows > split) & ~letter_mask)
-    if handle and (handle[0] // w) > (handle[-1] // w):
-        handle.reverse()        # start at the top, where it meets the canopy
-    phases.append((handle, False))
+        # 2. the ribs, one at a time, left to right, each followed from the apex
+        #    outwards. They all meet at the apex, so as drawn they are a single
+        #    connected component -- punch a small hole there and they separate.
+        rib_area = interior & (rows <= split)
+        yy, xx = np.ogrid[:h, :w]
+        apex_hole = (xx - apex_x) ** 2 + (yy - apex_y) ** 2 < (stroke * 5.0) ** 2
+        rib_mask = bytearray(int(v) for v in (rib_area & ~apex_hole).ravel())
+        ribs = [r for r in img_mod.components(rib_mask, w, h) if len(r) > 12]
+        ribs.sort(key=lambda b: sum(i % w for i in b) / len(b))
+        for rib in ribs:
+            m = np.zeros((h, w), dtype=bool)
+            for i in rib:
+                m[i // w, i % w] = True
+            walked = walk(m)
+            # Outwards from the apex, not inwards.
+            if walked and ((walked[0] // w - apex_y) ** 2 + (walked[0] % w - apex_x) ** 2 >
+                           (walked[-1] // w - apex_y) ** 2 + (walked[-1] % w - apex_x) ** 2):
+                walked.reverse()
+            # No pause between ribs: they are one movement, not eighteen.
+            phases.append((walked, False))
+
+        # 3. the handle: its centreline, followed down the shaft and round the hook
+        if phases:
+            last, _ = phases[-1]
+            phases[-1] = (last, True)           # ...but pause once the ribs are all done
+
+        # The welded centreline, not the drawn walls: the noodle runs down the
+        # middle of the rod, so the pen has to as well, or the reveal creeps down
+        # two lines that are no longer there.
+        # The letters sit below the canopy too, and they are drawn as their own
+        # phases further down, so they must not be swept up into the handle's walk
+        # as well -- that had the rod's reveal crawling over the O and the S
+        # before either of them was written.
+        handle = walk(centreline & (rows > split) & ~letter_mask)
+        if handle and (handle[0] // w) > (handle[-1] // w):
+            handle.reverse()        # start at the top, where it meets the canopy
+        phases.append((handle, False))
 
     # 4. the letters, each in its own pen order, with a lift before each
     for ch, seq in letter_runs:
@@ -527,9 +620,14 @@ def main():
             idx += max(8, len(phase) // 6)   # the pen lifts
     total = max(idx - 1, 1)
     lifts = sum(1 for _, pause in phases if pause)
-    print(f"  canopy {len(canopy_edge)}px -> {len(ribs)} ribs -> handle "
-          f"{len(handle)}px" + "".join(f" -> '{c}' {len(s)}px" for c, s in letter_runs)
-          + f"  (stroke ~{stroke:.1f}px, {lifts} pen lifts)")
+    if trace_masks:
+        print(f"  {len(trace_masks)} traced stroke(s)"
+              + "".join(f" -> '{c}' {len(s)}px" for c, s in letter_runs)
+              + f"  (stroke ~{stroke:.1f}px, {lifts} pen lifts)")
+    else:
+        print(f"  canopy {len(canopy_edge)}px -> {len(ribs)} ribs -> handle "
+              f"{len(handle)}px" + "".join(f" -> '{c}' {len(s)}px" for c, s in letter_runs)
+              + f"  (stroke ~{stroke:.1f}px, {lifts} pen lifts)")
 
     order = [None] * (w * h)
     q = deque()

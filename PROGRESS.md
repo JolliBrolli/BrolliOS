@@ -5,6 +5,34 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 — Drawing order can come from a traced hand
+
+### Done
+- **`--trace 'splash/trace-*.png'`**: each file is one stroke, drawn on a copy
+  of the drawing, and filename order is drawing order. A trace is a guideline,
+  not geometry: every point on a traced stroke claims the nearest piece of
+  centreline not already spoken for, so the trace decides WHEN each part is
+  written and in which direction, and the drawing still decides WHERE it is.
+  Traces go through the same crop, scale and pad as the drawing, and a size
+  mismatch is refused with a message rather than silently landing off the
+  lines.
+- **A trace need not be accurate or complete.** Whatever it misses keeps its
+  order from the spread, which grows outward from the parts that were claimed.
+  The guessed order (canopy -> ribs -> handle) stays as the fallback when no
+  trace is given.
+- **`--trace-flip N,M`** reverses a stroke. Direction cannot be recovered from
+  a still image -- the walk starts at the leftmost free end -- so it is
+  reported per stroke as "from (x,y) to (x,y)" and flipped by number.
+
+### Verified
+With three synthetic traces in a deliberately different order from the guess
+(handle first and drawn upwards, then the dome, then one rib): the reveal
+followed them exactly, `--trace-flip 1` reversed the handle from
+(276,219)->(282,475) to (282,475)->(276,219), and 1738px of unclaimed
+centreline took its order from the spread without a gap.
+
+---
+
 ## 2026-09-30 — BrolliOS: the letters, and a brightness knob
 
 ### Done
