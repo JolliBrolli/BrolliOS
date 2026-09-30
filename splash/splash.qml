@@ -712,6 +712,11 @@ ShellRoot {
                     property real bloom: 0.34       // the halo's strength
                     property real bloomWidth: 13.0  // how far it reaches, px
 
+                    // Straight brightness on top of the material, so the mark
+                    // reads against a busy wallpaper. 1.0 is the desktop's
+                    // glass exactly.
+                    property real markBrightness: 1.35
+
                     property real revealEdge: root.drawProgress * 1.12 - 0.06
                     // A longer leading edge: a nib laying down a line, rather
                     // than a hard boundary sweeping over one.

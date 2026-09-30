@@ -58,6 +58,7 @@ SCALARS = [
     ("float", "revealEdge"), ("float", "revealSoft"),
     ("float", "tubeLight"), ("float", "tubeSpec"), ("float", "tubeShine"),
     ("float", "bloom"), ("float", "bloomWidth"),
+    ("float", "markBrightness"),
 ]
 
 
@@ -175,6 +176,15 @@ def port(text):
     // while the stroke texture is the untouched artwork. Darkening by it drew
     // the original drawing back on top of the glass, offset from the noodle
     // that replaced it: grey outlines showing through, following nothing.
+
+    // Brightness, applied last and applied here rather than by changing the
+    // material's own constants.
+    //
+    // aghTint and aghBody would both do it, but they come from the same
+    // config the plugin reads, so turning them up would stop the lock screen
+    // matching the desktop's glass. This is a multiply on top of a material
+    // that is still bit-for-bit the shared one.
+    glassColor = clamp(glassColor * max(markBrightness, 0.0), 0.0, 1.0);
 
     // Written on: revealEdge walks 0..1 through the order map, which
     // carries when each pixel was traced.

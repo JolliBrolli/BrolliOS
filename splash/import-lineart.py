@@ -52,6 +52,14 @@ def main():
     ap.add_argument("--size", type=float, default=460.0, help="height in px")
     ap.add_argument("--threshold", type=int, default=128, help="luma below this is a line")
     ap.add_argument("--pad", type=int, default=40, help="margin around the shape")
+    ap.add_argument("--letters", default="OS",
+                    help="letters to set either side of the handle; '' for none")
+    ap.add_argument("--letter-font", default="futural",
+                    help="a Hershey font in splash/hershey/")
+    ap.add_argument("--letter-size", type=float, default=0.42,
+                    help="cap height, as a fraction of the drop below the canopy")
+    ap.add_argument("--letter-y", type=float, default=0.42,
+                    help="where they sit in that drop, 0 at the hem, 1 at the tip")
     ap.add_argument("--fillet", type=float, default=0.5,
                     help="how much to round the joins, as a fraction of the radius")
     ap.add_argument("--tube", type=float, default=5.0,
@@ -208,6 +216,80 @@ def main():
     centreline = np.zeros((h, w), dtype=bool)
     for idx in skel:
         centreline[idx // w, idx % w] = True
+    # ── OS, either side of the handle ──────────────────────────────────
+    # Hershey's fonts are single-stroke -- drawn by a plotter, one pen path per
+    # glyph -- which is exactly what a noodle wants. An outline font would have
+    # to be welded like the rod was; these need nothing. They also carry their
+    # own pen order, so the letters draw themselves the way they are written
+    # rather than in whatever order a walk happens to find.
+    letter_runs = []
+    letter_mask = np.zeros((h, w), dtype=bool)
+    if args.letters:
+        gw = load("generate_wordmark", "generate-wordmark.py")
+        glyphs = gw.parse_jhf(os.path.join(HERE, "hershey", args.letter_font + ".jhf"))
+
+        def line_px(x0, y0, x1, y1, out):
+            """Bresenham, so the stroke lands as a connected 1px line."""
+            dx, dy = abs(x1 - x0), abs(y1 - y0)
+            sx = 1 if x0 < x1 else -1
+            sy = 1 if y0 < y1 else -1
+            err = dx - dy
+            while True:
+                if 0 <= x0 < w and 0 <= y0 < h:
+                    out.append(y0 * w + x0)
+                if x0 == x1 and y0 == y1:
+                    return
+                e2 = 2 * err
+                if e2 > -dy:
+                    err -= dy
+                    x0 += sx
+                if e2 < dx:
+                    err += dx
+                    y0 += sy
+
+        rows_i = np.arange(h)[:, None]
+        bottom = int(np.nonzero(L.any(axis=1))[0].max())
+        cols = np.nonzero(L.any(axis=0))[0]
+        x_left, x_right = int(cols.min()), int(cols.max())
+        rod_xs = np.nonzero(centreline & (rows_i > split))[1]
+        rod_x = int(np.median(rod_xs)) if len(rod_xs) else w // 2
+
+        drop = max(1, bottom - split)
+        cap = args.letter_size * drop
+        y_mid = split + drop * args.letter_y
+        # Centred in the space either side of the rod, so they sit under the
+        # canopy rather than beyond it.
+        spots = [(x_left + rod_x) / 2.0, (rod_x + x_right) / 2.0]
+
+        for ch, cx0 in zip(args.letters, spots):
+            entry = glyphs.get(ord(ch))
+            if entry is None:
+                sys.exit(f"{ch!r} is not in {args.letter_font}.jhf")
+            glyph = entry[2]
+            pts_all = [q for s in glyph for q in s]
+            gx0, gx1 = min(q[0] for q in pts_all), max(q[0] for q in pts_all)
+            gy0, gy1 = min(q[1] for q in pts_all), max(q[1] for q in pts_all)
+            sc = cap / max(1, gy1 - gy0)
+            ox = cx0 - (gx0 + gx1) / 2.0 * sc
+            oy = y_mid - (gy0 + gy1) / 2.0 * sc
+            seq, seen = [], set()
+            for pen in glyph:
+                pts = [(int(round(qx * sc + ox)), int(round(qy * sc + oy)))
+                       for qx, qy in pen]
+                run = []
+                for a, b in zip(pts, pts[1:]):
+                    line_px(a[0], a[1], b[0], b[1], run)
+                for i in run:
+                    if i not in seen:
+                        seen.add(i)
+                        seq.append(i)
+            for i in seq:
+                centreline[i // w, i % w] = True
+                letter_mask[i // w, i % w] = True
+            letter_runs.append((ch, seq))
+            print(f"  '{ch}' at x={cx0:.0f} y={y_mid:.0f}, cap {cap:.0f}px, "
+                  f"{len(glyph)} stroke(s), {len(seq)}px")
+
     print(f"  centreline: {int(centreline.sum())}px")
 
     # edt() returns the distance TO the nearest True, so this is the distance
@@ -258,28 +340,45 @@ def main():
     rod_zone = filled | (L & (shape_mod.edt(filled.ravel(), w, h).reshape(h, w)
                               <= stroke + 1.5))
     solid = (solid & ~rod_zone) | tube_solid
-    # Any hole left inside the coverage is an artefact, so close it. Taking
-    # the rod's outline out leaves a speck where its top cap sat inside the
-    # canopy, and the panels are film already -- nothing that is genuinely
-    # inside the umbrella should read as a gap.
-    before = int(solid.sum())
-    _, solid = flood(solid)
-    print(f"  closed {int(solid.sum()) - before}px of holes in the coverage")
+    # Any SMALL hole left inside the coverage is an artefact, so close it.
+    # Taking the rod's outline out leaves a speck where its top cap sat inside
+    # the canopy. Size is what tells that apart from a letter's counter: a
+    # hole the rod can leave is at most the rod's width across, and the middle
+    # of an O is many times that. Without the bound, the O fills in solid.
+    max_hole = (tube_r * 4.0) ** 2
+    holes = 0
+    for comp in img_mod.components(bytearray(int(v) for v in (~solid).ravel()), w, h):
+        if len(comp) > max_hole:
+            continue
+        if any(i < w or i >= w * (h - 1) or i % w == 0 or i % w == w - 1
+               for i in comp):
+            continue                      # open to the outside, not a hole
+        for i in comp:
+            solid[i // w, i % w] = True
+        holes += len(comp)
+    print(f"  closed {holes}px of holes (nothing over {max_hole:.0f}px)")
 
-    # And any speck left floating is an artefact too. Taking the rod's outline
-    # out leaves fragments of it wherever its body was too narrow to reach
-    # them, and they read as bits of the drawing hanging beside the noodle.
-    # The umbrella is one connected piece, so everything that is not joined to
-    # the main body is debris.
+    # And any piece with no centreline in it is debris. Taking the rod's
+    # outline out leaves fragments of it wherever its body was too narrow to
+    # reach them, and they read as bits of the drawing hanging beside the
+    # noodle. "Keep the largest piece" would do it for the umbrella alone --
+    # but the letters are their own pieces, and it threw both of them away.
+    # Having a centreline is what makes a piece real.
     comps = img_mod.components(bytearray(int(v) for v in solid.ravel()), w, h)
     if len(comps) > 1:
-        comps.sort(key=len, reverse=True)
+        cl = centreline.ravel()
         keep = np.zeros((h, w), dtype=bool)
-        for idx in comps[0]:
-            keep[idx // w, idx % w] = True
-        print(f"  dropped {len(comps) - 1} floating fragments, "
-              f"{sum(len(c) for c in comps[1:])}px")
+        dropped = 0
+        for comp in comps:
+            if any(cl[i] for i in comp):
+                for i in comp:
+                    keep[i // w, i % w] = True
+            else:
+                dropped += len(comp)
+        if dropped:
+            print(f"  dropped {dropped}px with no centreline in it")
         solid = keep
+
     print(f"  coverage: silhouette - rod outline ({int(rod_zone.sum())}px) "
           f"+ noodle = {int(solid.sum())}px")
 
@@ -400,10 +499,21 @@ def main():
     # The welded centreline, not the drawn walls: the noodle runs down the
     # middle of the rod, so the pen has to as well, or the reveal creeps down
     # two lines that are no longer there.
-    handle = walk(centreline & (rows > split))
+    # The letters sit below the canopy too, and they are drawn as their own
+    # phases further down, so they must not be swept up into the handle's walk
+    # as well -- that had the rod's reveal crawling over the O and the S
+    # before either of them was written.
+    handle = walk(centreline & (rows > split) & ~letter_mask)
     if handle and (handle[0] // w) > (handle[-1] // w):
         handle.reverse()        # start at the top, where it meets the canopy
     phases.append((handle, False))
+
+    # 4. the letters, each in its own pen order, with a lift before each
+    for ch, seq in letter_runs:
+        if phases:
+            last, _ = phases[-1]
+            phases[-1] = (last, True)
+        phases.append((seq, False))
 
     # Lay the phases end to end, with a pause between each so the pen lifts.
     walk_index, idx = {}, 0
@@ -416,8 +526,10 @@ def main():
         if pause:
             idx += max(8, len(phase) // 6)   # the pen lifts
     total = max(idx - 1, 1)
+    lifts = sum(1 for _, pause in phases if pause)
     print(f"  canopy {len(canopy_edge)}px -> {len(ribs)} ribs -> handle "
-          f"{len(handle)}px  (stroke ~{stroke:.1f}px, 3 pen lifts)")
+          f"{len(handle)}px" + "".join(f" -> '{c}' {len(s)}px" for c, s in letter_runs)
+          + f"  (stroke ~{stroke:.1f}px, {lifts} pen lifts)")
 
     order = [None] * (w * h)
     q = deque()

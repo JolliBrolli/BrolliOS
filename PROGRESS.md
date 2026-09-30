@@ -5,6 +5,42 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 — BrolliOS: the letters, and a brightness knob
+
+### Done
+- **O and S, either side of the handle.** Set from Hershey's `futural`, which
+  is a plotter font: single-stroke glyphs, one pen path each, which is exactly
+  what a noodle wants. An outline face would have needed welding like the rod;
+  these need nothing. They also carry their own pen order, so each letter
+  draws itself the way it is written rather than in whatever order a walk
+  finds. Placed by measurement -- centred in the space either side of the rod,
+  under the canopy -- and tunable with `--letters`, `--letter-font`,
+  `--letter-size`, `--letter-y`.
+- **Brightness, as a multiply on top of the material** (`markBrightness`,
+  1.35). `aghTint` and `aghBody` would both have done it, but they come from
+  the same config the plugin reads, so turning them up would stop the lock
+  screen matching the desktop's glass. This leaves the material bit-for-bit
+  the shared one and scales the result.
+
+### Two rules the letters broke, both now stated properly
+- **Hole filling** closed the O's counter and left it a solid disc. It is
+  bounded by area now: a hole the rod's removal can leave is at most the rod's
+  width across, and a letter's counter is many times that.
+- **Fragment dropping** was "keep the largest piece", which threw both letters
+  away -- they are their own pieces, not joined to the umbrella. The test is
+  now whether a piece has any centreline in it. Debris left by removing the
+  rod's outline has none.
+- The handle's walk also had to exclude them: they sit below `split` too, so
+  the rod's reveal was crawling over the O and the S before either was
+  written.
+
+### Verified
+Rendered and looked at: letters read as noodles at the umbrella's line weight
+with their counters open, and the draw-on runs canopy -> ribs -> handle -> O
+-> S -> panels. 34 uniforms in the block, all set by the shell.
+
+---
+
 ## 2026-09-30 (last) — One rod, and joins that branch instead of overlap
 
 ### Done
