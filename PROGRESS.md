@@ -5,6 +5,54 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 — The umbrella's handle is one noodle, and the junction is clean
+
+**Status:** the three defects left in the wordmark are fixed. The handle is a
+single noodle of the right width on the drawn shaft's own centre, and where it
+meets the canopy the hem now tapers into it instead of growing dimples.
+
+### Done
+- **The handle was two noodles, 21px apart.** The shaft is drawn as an
+  *outlined stick*, and the flood fill never fills it -- its interior escapes
+  somewhere round the tip, so below the hem all that survived in the silhouette
+  was the two bare walls, thinned to one centreline each. A morphological
+  closing (dilate by 9px, erode back) welds the walls into a solid bar before
+  the centreline is taken, without having to find the leak. Handle noodle:
+  32px wide -> 15px, radius 7 as asked, centred on x=272 where the drawing
+  puts it.
+- **A distance-transform ridge was tried instead of thinning and reverted.**
+  Exact on the straight shaft, but round the tip's curve the local-maximum test
+  drops in and out: the noodle came apart and the tip was left a detached blob.
+  Thinning stays connected by construction, which the pen-path walk needs. It
+  only ever doubled because of what it was being handed.
+- **The shaft measurement was wrong twice.** "The first row holding two runs"
+  landed on a row that still had the hem in it, putting the answer 10px off;
+  measuring column depth below the hem instead put the tip's curve in the
+  span. Measured over the band between the two -- below the scallops, above the
+  curve -- it agrees with the drawing.
+- **The last of the dimples.** The trim band started 2.5px further out than the
+  stick's own zone reached, and the sliver of scallop line surviving in that
+  gap grew a 7px tube either side of the shaft: two tabs hanging under the hem.
+  Both bounds now come from one number, so nothing can survive between them.
+  The stick's enclosed gap is also excluded from coverage, which removed a 6px
+  sliver of film down each side of the shaft.
+
+### Verified
+By reading the generated textures, not by eye: one run 15px wide centred at 272
+at every row down the shaft; the hem full width to y=223 then tapering to the
+shaft by y=232 with no notch and no detached ink; centreline connected from
+apex to tip; drawing order canopy -> 5 ribs -> handle, film following the
+noodle with a short crossfade (noodle 0.01..0.73, film 0.69..0.96).
+
+### Next
+- Look at it on the actual lock screen -- everything above is measured off the
+  textures, so the fluidity of the draw is still unjudged.
+- The generated textures and `glassletters.frag` are gitignored as build
+  products, and the drawing they are built from lives outside the repo, so a
+  fresh clone has no wordmark. Decide whether the drawing ships.
+- `splash/` still holds five superseded approaches, all untracked.
+- Still open: fizzle-out animation on unlock; the post-unlock gap is unmeasured.
+
 ## 2026-09-23 — Folded into the main tree; blur 3x cheaper
 
 **Status:** `shell-plugin/` is gone. Its 30 changed/new files were copied into

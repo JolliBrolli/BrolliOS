@@ -53,14 +53,14 @@ mapfile -t MONITORS < <(hyprctl -j monitors 2>/dev/null \
 # `listactive` is the confirmation -- and it is also the ONLY list command this
 # version accepts: `listloaded` and `status` both answer "invalid hyprpaper
 # request", so probing with those just burns the timeout and then pushes late.
-for _ in $(seq 1 100); do
+for _ in $(seq 1 250); do
     for m in "${MONITORS[@]}"; do
         hyprctl hyprpaper wallpaper "${m},${CACHE}" >/dev/null 2>&1
     done
     if hyprctl hyprpaper listactive 2>/dev/null | grep -qF "$CACHE"; then
         break
     fi
-    sleep 0.05
+    sleep 0.02
 done
 
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))

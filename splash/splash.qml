@@ -16,8 +16,10 @@
 // Nothing here imports from the shell. Battery and wifi come from sysfs and
 // nmcli rather than the shell's services, which would drag in everything.
 //
-// Run splash/generate-wordmark.py first. It writes wordmark.json, which is
-// glyph outlines from a proprietary font, so it is generated and never committed.
+// Run splash/import-lineart.py on the umbrella drawing first. It writes
+// wordmark.json and the textures beside it -- a signed distance field, a tube
+// field, a drawing order and the drawn lines. They are build products of
+// someone's artwork, so they are generated and never committed.
 //
 import QtQuick
 import QtQuick.Shapes
@@ -25,6 +27,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Pam
+import Qt5Compat.GraphicalEffects
 
 ShellRoot {
     id: root
@@ -65,6 +68,20 @@ ShellRoot {
     // own capture to 48px for the same reason.
     readonly property real glassPad: 24
 
+    // Glass letters, or solid ones. The material's character is at its EDGES,
+    // so cut to letter shapes it is mostly interior and can read flat -- worth
+    // being able to flip back and compare.
+    readonly property bool glassWordmark: Quickshell.env("BROLLI_SPLASH_FLATMARK") !== "1"
+
+    // A pen stroke, not letterforms. Thick enough to be a body the glass can
+    // refract through -- a hairline has no inside.
+    readonly property bool isScript: wordmark && wordmark.style === "script"
+    readonly property bool isImage: wordmark && wordmark.style === "image"
+    readonly property real penWidth: 13
+
+    // How far each letter's glass panel extends past its ink.
+    readonly property real letterInset: 13
+
     readonly property double startedAt: Date.now()
 
     // The field is not there until it has something to show. In preview it
@@ -74,6 +91,7 @@ ShellRoot {
     // Glyphs draw one after another, left to right, so it reads as writing
     // rather than everything appearing at once.
     function glyphProgress(i) {
+        if (root.isScript) return root.drawProgress;
         return Math.max(0, Math.min(1, root.drawProgress * root.glyphCount - i));
     }
 
@@ -89,6 +107,27 @@ ShellRoot {
         onLoaded: root.wallpaper = wallpaperState.text().trim()
         onFileChanged: reload()
         onLoadFailed: console.warn("[splash] no wallpaper state file; falling back to flat colour")
+    }
+
+    // The same settings the plugin and the Settings sliders use, so the lock
+    // screen cannot drift away from every other panel.
+    property var glass: ({})
+    FileView {
+        id: glassConfig
+        path: Quickshell.env("HOME") + "/.config/brollios/config.json"
+        watchChanges: true
+        onLoaded: {
+            try {
+                root.glass = JSON.parse(glassConfig.text()).appearance.liquidGlass || ({});
+            } catch (e) {
+                console.warn("[splash] could not read liquidGlass settings:", e);
+            }
+        }
+        onFileChanged: reload()
+    }
+    function g(key, fallback) {
+        const v = root.glass[key];
+        return (v === undefined || v === null) ? fallback : v;
     }
 
     FileView {
@@ -138,8 +177,12 @@ ShellRoot {
         property: "drawProgress"
         from: 0
         to: 1
-        duration: 1500
-        easing.type: Easing.InOutQuad
+        duration: 2900
+        // A roller coaster: eases up, runs quick through the middle, then a
+        // long slow finish. Asymmetric on purpose -- the tail is much longer
+        // than the launch, so "OS" is laboured over while "Brolli" flows.
+        easing.type: Easing.Bezier
+        easing.bezierCurve: [0.42, 0.015, 0.25, 1.0, 1.0, 1.0]
     }
 
     // ── battery and wifi, cheaply ────────────────────────────────────────
@@ -428,56 +471,311 @@ ShellRoot {
             }
 
             // ── centre: wordmark, then the field ─────────────────────────
+            // Fills the screen rather than hugging its contents, so the
+            // wordmark and the field can be placed apart from each other
+            // instead of the field trailing the wordmark by a fixed margin.
             Item {
-                anchors.centerIn: parent
-                width: Math.max(markHolder.width, 300)
-                height: markHolder.height + 120
+                anchors.fill: parent
 
                 Item {
                     id: markHolder
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
-                    width: root.wordmark ? root.wordmark.width : 1
-                    height: root.wordmark ? root.wordmark.ascent + root.wordmark.descent : 1
+                    anchors.topMargin: parent.height * 0.26
+                    width: !root.wordmark ? 1
+                        : root.isImage ? root.wordmark.width
+                        : root.wordmark.width + root.penWidth
+                    height: !root.wordmark ? 1
+                        : root.isImage ? root.wordmark.height
+                        : root.wordmark.ascent + root.wordmark.descent + root.penWidth
 
-                    // One Shape per glyph: Repeater delegates have to be Items,
-                    // and ShapePath is not one. The path data is already in
-                    // absolute coordinates, so every Shape fills the same box.
-                    Repeater {
-                        model: root.wordmark ? root.wordmark.paths : []
 
-                        Shape {
-                            id: glyph
-                            required property var modelData
-                            required property int index
-                            anchors.fill: parent
-                            asynchronous: false
-                            preferredRendererType: Shape.CurveRenderer
 
-                            readonly property real p: root.glyphProgress(index)
-                            readonly property real dash: modelData.len / 1.6
 
-                            ShapePath {
-                                strokeColor: "#ffffff"
-                                strokeWidth: 1.6
-                                capStyle: ShapePath.RoundCap
-                                joinStyle: ShapePath.RoundJoin
-                                fillColor: Qt.rgba(1, 1, 1, Math.max(0, glyph.p - 0.7) / 0.3)
-                                strokeStyle: ShapePath.DashLine
-                                dashPattern: [glyph.dash, glyph.dash]
-                                dashOffset: glyph.dash * (1 - glyph.p)
-                                PathSvg { path: glyph.modelData.d }
-                            }
+                    // ── an imported wordmark image ─────────────────────
+                    // The image IS the mask. Tracing it would turn the brush
+                    // stroke into its own outline, which is the wrong shape;
+                    // used directly, every bit of weight and taper survives.
+                    // ── handwriting: ONE continuous pen stroke ──────────
+                    // Apple's "hello" is a single path, trimmed on, stroked
+                    // with a round cap -- not letter outlines. A normal font
+                    // cannot give that: it stores outlines, and the centreline
+                    // of a glyph is not in the file. The Hershey script hand
+                    // does store centrelines, so the wordmark is one path with
+                    // pen-lifts in it, and the dash walks the whole word in
+                    // writing order.
+                    Shape {
+                        id: penStroke
+                        anchors.fill: parent
+                        visible: root.isScript
+                        asynchronous: false
+                        preferredRendererType: Shape.CurveRenderer
+                        transform: Translate { y: root.wordmark ? -root.wordmark.top : 0 }
+
+                        readonly property real len: root.wordmark && root.isScript
+                            ? root.wordmark.paths[0].len : 1
+                        readonly property real w: root.penWidth
+
+                        ShapePath {
+                            strokeColor: "#ffffff"
+                            fillColor: "transparent"
+                            strokeWidth: penStroke.w
+                            capStyle: ShapePath.RoundCap
+                            joinStyle: ShapePath.RoundJoin
+                            // dashPattern is in units of strokeWidth, not px.
+                            strokeStyle: ShapePath.DashLine
+                            dashPattern: [penStroke.len / penStroke.w,
+                                          penStroke.len / penStroke.w]
+                            dashOffset: penStroke.len / penStroke.w * (1 - root.drawProgress)
+                            PathSvg { path: root.wordmark && root.isScript
+                                ? root.wordmark.paths[0].d : "" }
                         }
                     }
+
+                }
+
+                // The letters, rendered to a texture and taken off screen.
+                // hideSource is what stops you seeing the word itself: the
+                // glass is the only thing drawn.
+                ShaderEffectSource {
+                    id: markMask
+                    visible: false
+                    sourceItem: markHolder
+                    hideSource: root.glassWordmark
+                    live: true
+                    width: markHolder.width
+                    height: markHolder.height
+                }
+
+                // The reveal-order texture.
+                //
+                // Handing a ShaderEffect a url and expecting a texture does
+                // not work here -- the sampler stays unbound and reads
+                // (0,0,0,1), so every pixel claims order 0 and the whole word
+                // arrives at once. Which is exactly what "it just fades in"
+                // was. An Image through a ShaderEffectSource does bind, and
+                // premultiplication cannot hurt this one because it is fully
+                // opaque.
+                //
+                // No smoothing anywhere: the order is a 16-bit value split
+                // across R and G, and interpolating those two channels
+                // independently invents values that are nonsense between
+                // pixels.
+                // The shape, as its own texture. It must NOT be a child of
+                // anything on screen: an invisible child of a rendered item is
+                // simply not drawn, so it would be missing from the mask -- but
+                // an invisible item used directly as a sourceItem still renders
+                // into its texture. That difference is why the letters were
+                // showing through before they were written.
+                Image {
+                    id: markImage
+                    visible: false
+                    source: (root.isImage && root.wordmark.mask)
+                        ? Qt.resolvedUrl(root.wordmark.mask) : ""
+                    smooth: true
+                    mipmap: false
+                    cache: true
+                }
+
+                ShaderEffectSource {
+                    id: maskSource
+                    visible: false
+                    sourceItem: markImage
+                    hideSource: false
+                    live: true
+                    width: markImage.implicitWidth || 1
+                    height: markImage.implicitHeight || 1
+                }
+
+                Image {
+                    id: orderImage
+                    visible: false
+                    source: (root.isImage && root.wordmark.order)
+                        ? Qt.resolvedUrl(root.wordmark.order) : ""
+                    smooth: false
+                    mipmap: false
+                    cache: true
+                }
+
+                ShaderEffectSource {
+                    id: orderSource
+                    visible: false
+                    sourceItem: orderImage
+                    hideSource: false
+                    live: true
+                    smooth: false
+                    width: orderImage.implicitWidth || 1
+                    height: orderImage.implicitHeight || 1
+                }
+
+                // Backdrop for the wordmark glass, padded so the lens can
+                // reach outside the letters.
+                ShaderEffectSource {
+                    id: markBackdrop
+                    visible: false
+                    sourceItem: wallpaperImage
+                    sourceRect: {
+                        const w = screen.width, h = screen.height;
+                        const my = markHolder.y, mw = markHolder.width, mh = markHolder.height;
+                        const pt = markHolder.mapToItem(screen, 0, 0);
+                        return Qt.rect(pt.x - glassPad, pt.y - glassPad,
+                                       mw + glassPad * 2, mh + glassPad * 2);
+                    }
+                    width: markHolder.width + glassPad * 2
+                    height: markHolder.height + glassPad * 2
+                    live: true
+                }
+
+                // The shape field: signed distance in R,G and local
+                // half-thickness in B. No smoothing -- these are numbers, and
+                // interpolating a 16-bit value split across two channels
+                // invents values between pixels.
+                Image {
+                    id: shapeImage
+                    visible: false
+                    source: (root.isImage && root.wordmark.shape)
+                        ? Qt.resolvedUrl(root.wordmark.shape) : ""
+                    // Linear filtering, deliberately. A distance field is a
+                    // smooth function and interpolates exactly; sampling it
+                    // nearest-neighbour makes it a staircase, and fwidth() of
+                    // a staircase is jagged antialiasing. This is also what
+                    // lets the letters stay clean when the item is larger than
+                    // the texture -- the whole reason SDF text rendering works.
+                    smooth: true
+                    mipmap: false
+                    cache: true
+                }
+
+                ShaderEffectSource {
+                    id: shapeSource
+                    visible: false
+                    sourceItem: shapeImage
+                    live: true
+                    smooth: true
+                    width: shapeImage.implicitWidth || 1
+                    height: shapeImage.implicitHeight || 1
+                }
+
+                // The drawn strokes, for darkening. Smooth: this one is a
+                // picture, not a packed number, so filtering it is correct.
+                Image {
+                    id: lineImage
+                    visible: false
+                    source: (root.isImage && root.wordmark.lines)
+                        ? Qt.resolvedUrl(root.wordmark.lines) : ""
+                    smooth: true
+                    mipmap: false
+                    cache: true
+                }
+
+                ShaderEffectSource {
+                    id: lineSource
+                    visible: false
+                    sourceItem: lineImage
+                    live: true
+                    smooth: true
+                    width: lineImage.implicitWidth || 1
+                    height: lineImage.implicitHeight || 1
+                }
+
+                // The noodle's own shape field: distance to the drawn line,
+                // minus its radius. Linear filtering, same as the silhouette.
+                Image {
+                    id: tubeImage
+                    visible: false
+                    source: (root.isImage && root.wordmark.tube)
+                        ? Qt.resolvedUrl(root.wordmark.tube) : ""
+                    smooth: true
+                    mipmap: false
+                    cache: true
+                }
+
+                ShaderEffectSource {
+                    id: tubeSource
+                    visible: false
+                    sourceItem: tubeImage
+                    live: true
+                    smooth: true
+                    width: tubeImage.implicitWidth || 1
+                    height: tubeImage.implicitHeight || 1
+                }
+
+                // THE material -- generated from plugin/src/brolliglass.frag by
+                // port-letters.py, with only the three lines that assume a
+                // rounded rectangle replaced. Same constants, same curves, same
+                // everything the desktop panels are drawn with.
+                ShaderEffect {
+                    anchors.fill: markHolder
+                    visible: root.glassWordmark && wallpaperImage.status === Image.Ready
+                    fragmentShader: Qt.resolvedUrl("glassletters.frag.qsb")
+
+                    property variant source: markBackdrop
+                    property variant shapeTex: shapeSource
+                    property variant orderTex: orderSource
+                    property variant lineTex: lineSource
+                    property variant tubeTex: tubeSource
+                    // 0 keeps the drawing invisible inside the glass, 1 makes
+                    // the strokes black. Enough to read as line work.
+                    // Much lower now the lines are a raised tube rather than
+                    // a flat mark: the shape does the work, and heavy
+                    // darkening on top just makes them look drawn on again.
+                    property real lineDarken: root.wordmark && root.wordmark.lines ? 0.14 : 0.0
+
+                    property vector2d panelSize: Qt.vector2d(width, height)
+                    property vector2d texSize: Qt.vector2d(markBackdrop.width, markBackdrop.height)
+                    property real pad: glassPad
+                    property real maxCornerRadius: root.g("maxCornerRadius", 29)
+
+                    property real sdRange: root.wordmark && root.wordmark.sdRange
+                        ? root.wordmark.sdRange : 64
+                    property vector2d shapeTexel: Qt.vector2d(
+                        1.0 / Math.max(1, shapeSource.width),
+                        1.0 / Math.max(1, shapeSource.height))
+
+                    // Straight from the same config the plugin reads, so the
+                    // lock screen tracks the Settings sliders.
+                    property real aghDepth: root.g("aghDepth", 0.30)
+                    property real aghStrength: root.g("aghStrength", 0.43)
+                    property real aghBlur: root.g("aghBlur", 1.48)
+                    property real aghChroma: root.g("aghChroma", 3.0)
+                    property real aghEdge: root.g("aghEdge", 0.02)
+                    property real aghTint: root.g("aghTint", 0.99)
+                    property real aghStretch: root.g("aghStretch", 0.40)
+
+                    property vector2d panelStat: Qt.vector2d(0.5, 0.25)
+                    property real glassDir: -1.0
+                    property real aghSquash: root.g("aghSquash", 0.3)
+                    property real aghPush: root.g("aghPush", 0.0)
+                    property real aghBody: root.g("aghBody", 0.06)
+                    property real glassOverGlass: 0.0
+
+                    property vector4d tint: Qt.vector4d(0, 0, 0, 0)
+                    property real power: root.g("power", 2.78)
+                    property real rimHighlightStrength: root.g("rimHighlightStrength", 0.25)
+                    property real rimHighlightWidth: root.g("rimHighlightWidth", 1.5)
+                    property real rimDiagonalReach: root.g("rimDiagonalReach", 1.0)
+
+                    // Cylinder lighting on the noodle, and the glow around it.
+                    property real tubeLight: 0.85   // how lit the tube is
+                    property real tubeSpec: 0.30    // the highlight along its top
+                    property real tubeShine: 24.0   // how tight that highlight is
+                    property real bloom: 0.34       // the halo's strength
+                    property real bloomWidth: 13.0  // how far it reaches, px
+
+                    property real revealEdge: root.drawProgress * 1.12 - 0.06
+                    // A longer leading edge: a nib laying down a line, rather
+                    // than a hard boundary sweeping over one.
+                    property real revealSoft: 0.06
                 }
 
                 // Centred under the wordmark, and only there when in use.
                 Item {
                     id: fieldHolder
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: markHolder.bottom
-                    anchors.topMargin: 46
+                    // Anchored to the bottom, so it sits where it should on
+                    // any screen height rather than drifting with a percentage.
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Math.max(90, parent.height * 0.12)
                     width: 260
                     height: 44
 
@@ -636,6 +934,10 @@ ShellRoot {
             implicitHeight: 560
             color: "transparent"
             WlrLayershell.namespace: "brollios:splash-preview"
+            // Without this a layer-shell window never receives keys, so the
+            // preview could be looked at but not typed into -- which made it
+            // useless for testing the one thing that needs a password.
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
             Loader { anchors.fill: parent; sourceComponent: face }
         }
     }
