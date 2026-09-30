@@ -5,6 +5,40 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 (later) — The tail was being eaten, and the drawing was showing through
+
+### Done
+- **The tail's U-bend and returning limb were being deleted.** The scallop trim
+  clears an annulus 17..84px either side of the shaft, and its lower bound was
+  `rows > hem_y` -- unbounded, so it ran to the bottom of the drawing. The
+  handle's tail turns back up through that annulus 60..79px out, so the trim
+  ate the bend and the limb, and the handle just stopped instead of hooking
+  round. Bounded to `<= split`: nothing below that is canopy. Trimmed drops
+  from 2895px to 951px, and the tail now goes down, round and back up to its
+  cap.
+  On the way, two of my own readings of this were wrong and are recorded so
+  they are not repeated: the source drawing *does* have a U-bend (an earlier
+  probe window stopped at x=340 and cut it off), and the resize is *not*
+  losing it -- the source strokes are 11..22px and survive every threshold
+  from 0.45 down to 0.15.
+- **The drawing's strokes are no longer darkened into the glass.** The shader
+  multiplied the glass 14% darker wherever `wordmark-lines.png` had ink -- the
+  untouched artwork. The noodle follows a centreline *derived* from that
+  artwork (the shaft's two walls collapse to one line between them, the
+  scallops are trimmed, the bend is thinned), so the two can never line up:
+  the original drawing was being painted back over the noodle that replaced
+  it, offset from it. That is the grey outline, and it predates the noodle,
+  which now *is* the outline. Removed: the pass, its `lineDarken` uniform, its
+  sampler, the texture, and the shell's two properties.
+
+### Verified
+Shader recompiles (11233 bytes); all 33 uniforms in the block are still set by
+the shell; the four samplers match the shell's properties by name with a
+contiguous binding layout; no reference to the strokes texture remains anywhere
+in `splash/`.
+
+---
+
 ## 2026-09-30 — The umbrella's handle is one noodle, and the junction is clean
 
 **Status:** the three defects left in the wordmark are fixed. The handle is a

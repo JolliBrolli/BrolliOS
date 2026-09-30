@@ -56,7 +56,6 @@ SCALARS = [
     # letters only
     ("float", "sdRange"), ("vec2", "shapeTexel"),
     ("float", "revealEdge"), ("float", "revealSoft"),
-    ("float", "lineDarken"),
     ("float", "tubeLight"), ("float", "tubeSpec"), ("float", "tubeShine"),
     ("float", "bloom"), ("float", "bloomWidth"),
 ]
@@ -166,13 +165,16 @@ def port(text):
         glassColor = mix(glassColor, lit, tubeW);
     }
 
-    // The drawing's own lines, kept as darker glass rather than as ink.
-    // A line drawing is two things: what the outline encloses, which is the
-    // body of glass, and the strokes themselves. Darkening the strokes keeps
-    // the drawing legible inside the material instead of losing it to the
-    // refraction.
-    float line = texture(lineTex, qt_TexCoord0).r;
-    glassColor *= 1.0 - clamp(lineDarken, 0.0, 1.0) * line;
+    // The drawing's own strokes are NOT darkened here any more.
+    //
+    // They used to be: before the noodle existed the outline had to read as
+    // darker glass, because nothing else marked where it was. Now the noodle
+    // IS the outline, and the two cannot agree -- the noodle follows a
+    // centreline derived from the drawing (the shaft's two walls collapse to
+    // one line between them, the scallops are trimmed, the bend is thinned),
+    // while the stroke texture is the untouched artwork. Darkening by it drew
+    // the original drawing back on top of the glass, offset from the noodle
+    // that replaced it: grey outlines showing through, following nothing.
 
     // Written on: revealEdge walks 0..1 through the order map, which
     // carries when each pixel was traced.
@@ -214,8 +216,7 @@ layout(std140, binding = 0) uniform buf {{
 layout(binding = 1) uniform sampler2D source;     // the backdrop
 layout(binding = 2) uniform sampler2D shapeTex;   // sd in R, half-thickness in G
 layout(binding = 3) uniform sampler2D orderTex;   // when each pixel is written
-layout(binding = 4) uniform sampler2D lineTex;    // the drawn strokes, in R
-layout(binding = 5) uniform sampler2D tubeTex;   // the noodle: sd in R, radius in G
+layout(binding = 4) uniform sampler2D tubeTex;   // the noodle: sd in R, radius in G
 
 // Signed distance, decoded from a shape field.
 float decode(vec4 s) {{ return (s.r * 2.0 - 1.0) * sdRange; }}

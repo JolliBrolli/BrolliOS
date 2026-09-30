@@ -656,28 +656,6 @@ ShellRoot {
                     height: shapeImage.implicitHeight || 1
                 }
 
-                // The drawn strokes, for darkening. Smooth: this one is a
-                // picture, not a packed number, so filtering it is correct.
-                Image {
-                    id: lineImage
-                    visible: false
-                    source: (root.isImage && root.wordmark.lines)
-                        ? Qt.resolvedUrl(root.wordmark.lines) : ""
-                    smooth: true
-                    mipmap: false
-                    cache: true
-                }
-
-                ShaderEffectSource {
-                    id: lineSource
-                    visible: false
-                    sourceItem: lineImage
-                    live: true
-                    smooth: true
-                    width: lineImage.implicitWidth || 1
-                    height: lineImage.implicitHeight || 1
-                }
-
                 // The noodle's own shape field: distance to the drawn line,
                 // minus its radius. Linear filtering, same as the silhouette.
                 Image {
@@ -712,14 +690,12 @@ ShellRoot {
                     property variant source: markBackdrop
                     property variant shapeTex: shapeSource
                     property variant orderTex: orderSource
-                    property variant lineTex: lineSource
                     property variant tubeTex: tubeSource
                     // 0 keeps the drawing invisible inside the glass, 1 makes
                     // the strokes black. Enough to read as line work.
                     // Much lower now the lines are a raised tube rather than
                     // a flat mark: the shape does the work, and heavy
                     // darkening on top just makes them look drawn on again.
-                    property real lineDarken: root.wordmark && root.wordmark.lines ? 0.14 : 0.0
 
                     property vector2d panelSize: Qt.vector2d(width, height)
                     property vector2d texSize: Qt.vector2d(markBackdrop.width, markBackdrop.height)

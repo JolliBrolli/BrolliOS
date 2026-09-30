@@ -34,7 +34,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_SHAPE = os.path.join(HERE, "wordmark-shape.png")
 OUT_ORDER = os.path.join(HERE, "wordmark-order.png")
 OUT_MASK = os.path.join(HERE, "wordmark-mask.png")
-OUT_LINES = os.path.join(HERE, "wordmark-lines.png")
 OUT_TUBE = os.path.join(HERE, "wordmark-tube.png")
 OUT_JSON = os.path.join(HERE, "wordmark.json")
 SD_RANGE = 32.0
@@ -199,7 +198,16 @@ def main():
     stick_pad = shaft_half + 4.0
     dx = np.abs(np.arange(w)[None, :] - shaft_x)
     band = (dx > stick_pad) & (dx < shaft_half * 6.5)
-    below = np.arange(h)[:, None] > hem_y
+
+    # ...and only as far down as the canopy goes.
+    #
+    # Unbounded, this annulus reaches the bottom of the drawing -- and the
+    # handle's tail turns back up through it, 60..79px out from the shaft.
+    # So the trim was quietly eating the tail's returning limb and the U-bend
+    # joining it, which is why the handle just stopped instead of hooking
+    # round. The scallops hang a few rows under the hem; nothing below `split`
+    # is canopy at all.
+    below = ((np.arange(h)[:, None] > hem_y) & (np.arange(h)[:, None] <= split))
     doomed = L & band & below
     L &= ~doomed
 
@@ -604,14 +612,12 @@ def main():
         Image.fromarray(((o16 >> 8) & 0xFF).astype(np.uint8)),
         Image.fromarray((o16 & 0xFF).astype(np.uint8)),
         Image.fromarray(np.zeros((h, w), np.uint8)),
-        Image.fromarray(np.full((h, w), 255, np.uint8)))).save(OUT_LINES.replace("lines", "order"))
+        Image.fromarray(np.full((h, w), 255, np.uint8)))).save(OUT_ORDER)
 
-    # Line coverage, antialiased, for the shader to darken by.
-    Image.merge("RGBA", (
-        Image.fromarray(np.round(LF * 255).astype(np.uint8)),
-        Image.fromarray(np.zeros((h, w), np.uint8)),
-        Image.fromarray(np.zeros((h, w), np.uint8)),
-        Image.fromarray(np.full((h, w), 255, np.uint8)))).save(OUT_LINES)
+    # No stroke texture any more. The shader used to darken the glass wherever
+    # the drawing had ink, which put the original artwork back on top of the
+    # noodle that replaced it -- and offset from it, since the noodle follows a
+    # centreline derived from those strokes rather than the strokes themselves.
 
     enc_t = np.clip((sd_tube + SD_RANGE) / (2.0 * SD_RANGE), 0.0, 1.0)
     Image.merge("RGBA", (
@@ -636,7 +642,6 @@ def main():
             "mask": os.path.basename(OUT_MASK),
             "shape": os.path.basename(OUT_SHAPE),
             "order": os.path.basename(OUT_ORDER),
-            "lines": os.path.basename(OUT_LINES),
             "tube": os.path.basename(OUT_TUBE),
             "ordered": True, "orderSource": "lineart",
             "sdRange": SD_RANGE,
@@ -645,7 +650,7 @@ def main():
 
     print(f"{w}x{h}px, sd {sd.min():.1f}..{sd.max():.1f}px, "
           f"half-thickness up to {half[solid].max():.0f}px")
-    print(f"-> {OUT_SHAPE}, {OUT_ORDER}, {OUT_LINES}")
+    print(f"-> {OUT_SHAPE}, {OUT_ORDER}, {OUT_TUBE}")
 
 
 if __name__ == "__main__":
