@@ -1,4 +1,5 @@
 <h1 align="center">BrolliOS</h1>
+<h2 align="center">V 0.1.1</h2>
 
 <p align="center"><b>A macOS-style desktop for Hyprland, with liquid glass drawn by the compositor.</b></p>
 
