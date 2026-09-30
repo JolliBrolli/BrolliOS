@@ -5,6 +5,44 @@ lives in `NOTES.md`.
 
 ---
 
+## 2026-09-30 (later still) — Follow the drawing; stop correcting it
+
+**Status:** the noodle now sits exactly on the artwork. Measured: 0 of 19773
+drawn pixels fall outside it.
+
+### Done
+- **Every derivation between the drawing and the noodle is gone.** Each had
+  been added to fix the one before it, and together they had walked the shape
+  away from the drawing: the scallop trim (which also ate the tail), the hem
+  drawn straight across the gap it left, the morphological closing that welded
+  the rod's two walls into one bar, the centreline carried up to an apex the
+  drawing has no shaft at, and the stick zone needed to stop the rod being
+  tubed twice. Removed, along with the shaft/hem measurement they all depended
+  on -- roughly 120 lines.
+- **The centreline is now the skeleton of the ink**: one pixel down the middle
+  of every stroke, wherever the drawing put it. Both walls of the rod, every
+  rib, every scallop. The radius is the only number that is ours, and it is
+  uniform, so the whole thing reads as one piece of glass.
+- **Coverage is the drawing's silhouette plus the noodle.** The enclosed parts
+  are the canopy's panels and the inside of the rod, which is what makes the
+  rod read as a rod rather than as two rails with a gap down it.
+- **The last texture carrying a picture of the drawing is gone.** The coverage
+  mask was still generated and still loaded by the shell into a
+  ShaderEffectSource that was never bound to anything. Dead, and removed.
+
+### Verified
+By rendering the textures and looking at them, not by probing rows: the noodle
+covers every drawn pixel (0 of 19773 uncovered), and the draw-on runs canopy
+outline and scallops -> ribs -> handle down and round the hook -> panels fill
+(noodle 0.01..0.73, film 0.69..0.96).
+
+### Lesson
+Three rounds were spent fixing corrections with more corrections, each one
+measured and each one further from the drawing. The drawing was right the
+whole time. When the input is already what is wanted, the job is to follow it.
+
+---
+
 ## 2026-09-30 (later) — The tail was being eaten, and the drawing was showing through
 
 ### Done

@@ -33,7 +33,6 @@ from collections import deque
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_SHAPE = os.path.join(HERE, "wordmark-shape.png")
 OUT_ORDER = os.path.join(HERE, "wordmark-order.png")
-OUT_MASK = os.path.join(HERE, "wordmark-mask.png")
 OUT_TUBE = os.path.join(HERE, "wordmark-tube.png")
 OUT_JSON = os.path.join(HERE, "wordmark.json")
 SD_RANGE = 32.0
@@ -140,202 +139,36 @@ def main():
     d_line = shape_mod.edt((~L).ravel(), w, h).reshape(h, w)
     stroke = max(2.0, float(np.median(d_line[L])) * 2.0)
 
-    # ── trim the two scallops the shaft comes down between ──────────────
-    # They are not fill, they are LINE: the hem is an outline, so the tube
-    # wraps it, and the two scallops beside the shaft hang below the hem with
-    # the shaft dropping through the gap between them. That pair of notches is
-    # the dimples, and they have to go before the tube is built, because after
-    # that they are part of it.
-    def runs_in(row):
-        out, i = [], 0
-        while i < w:
-            if row[i]:
-                j = i
-                while j < w and row[j]:
-                    j += 1
-                out.append((i, j - 1))
-                i = j
-            else:
-                i += 1
-        return out
-
-    hem_full = solid[:split + 1].sum(axis=1)
-    hem_y = int(np.nonzero(hem_full > hem_full.max() * 0.92)[0].max()) if hem_full.any() else split
-
-    # The shaft, measured rather than guessed, and measured DOWN a column
-    # rather than across a row.
+    # ── the noodle: a tube on the drawing's own strokes ─────────────────
+    # The drawing IS the shape. Nothing here edits it.
     #
-    # Across a row it cannot be told apart from the scallops that flank it,
-    # and reading "the first row with two runs" as the shaft's two sides was
-    # wrong twice over: the shaft is drawn as a single stroke, not an outlined
-    # stick, and the row that test landed on still had the hem in it, which
-    # put the answer 10px off the real shaft. A median x over the lower rows
-    # is no better -- the hook curls away and drags it further still.
+    # Everything that used to stand between this point and the drawing has
+    # been taken out, because every piece of it was a correction to artwork
+    # that did not need correcting, and together they left a shape that no
+    # longer matched it:
     #
-    # Down a column, over the band where the shaft is the only thing there:
-    # clear of the scallops, which dip only a few pixels past the hem, and
-    # above the hook, which curls away at the bottom. Taking the whole depth
-    # below the hem instead puts the hook's upstroke in the answer, and the
-    # span of shaft-plus-hook is again 10px wide of the shaft.
-    top, bot = hem_y + 8, hem_y + int((h - hem_y) * 0.45)
-    rows = (np.arange(h)[:, None] > top) & (np.arange(h)[:, None] < bot)
-    depth = (L & rows).sum(axis=0)
-    tall = np.nonzero(depth > (bot - top) * 0.7)[0]
-    if len(tall):
-        shaft_x = int((tall.min() + tall.max()) // 2)
-        shaft_half = max(4.0, (tall.max() - tall.min()) / 2.0)
-    else:
-        shaft_x, shaft_half = w // 2, max(6.0, stroke * 2)
-
-    # From where the stick's own zone ends out to 6.5 shaft half-widths: past
-    # the shaft's walls, and short of the next scallop along.
+    #   - a trim that deleted the two scallops beside the shaft, and with them
+    #     the tail's bend and returning limb;
+    #   - a hem drawn straight across the gap that trim left;
+    #   - a morphological closing that welded the rod's two walls into one bar;
+    #   - a centreline carried up to the apex, inventing a shaft the drawing
+    #     does not have inside the canopy;
+    #   - a stick zone that then had to exclude the rod from the canopy to
+    #     stop it being tubed twice.
     #
-    # The inner bound has to be exactly where `stick_zone` stops, not a
-    # separate guess at it. At 1.5 half-widths it started 2.5px further out
-    # than the zone reached, and the scallop line surviving in that gap grew a
-    # 7px tube either side of the shaft -- a pair of tabs hanging under the
-    # hem, which is the dimple in its last form.
-    stick_pad = shaft_half + 4.0
-    dx = np.abs(np.arange(w)[None, :] - shaft_x)
-    band = (dx > stick_pad) & (dx < shaft_half * 6.5)
-
-    # ...and only as far down as the canopy goes.
-    #
-    # Unbounded, this annulus reaches the bottom of the drawing -- and the
-    # handle's tail turns back up through it, 60..79px out from the shaft.
-    # So the trim was quietly eating the tail's returning limb and the U-bend
-    # joining it, which is why the handle just stopped instead of hooking
-    # round. The scallops hang a few rows under the hem; nothing below `split`
-    # is canopy at all.
-    below = ((np.arange(h)[:, None] > hem_y) & (np.arange(h)[:, None] <= split))
-    doomed = L & band & below
-    L &= ~doomed
-
-    # Carry the hem straight across the gap, so the canopy still has an edge
-    # for the flood fill to close against.
-    span = dx < shaft_half * 6.5
-    for d in range(-1, max(2, int(stroke) - 1)):
-        yy = hem_y + d
-        if 0 <= yy < h:
-            L[yy] |= span[0]
-
-    print(f"  shaft at x={shaft_x} (half {shaft_half:.0f}px), hem y={hem_y}; "
-          f"trimmed {int(doomed.sum())}px of scallop beside it")
-    outside, solid = flood(L)
-
-    # ── the noodle: a tube around the drawn lines ───────────────────────
-    # The lines are not meant to be drawn ON the glass, they are meant to BE
-    # glass -- a rounded tube standing proud of the panels, which is what makes
-    # the whole thing look like it is coming out of the screen rather than
-    # printed on it.
-    #
-    # A tube's signed distance is exact: distance to the line, minus its
-    # radius. d_line is already measured above for the stroke width.
+    # What is left is the honest version. The centreline is the skeleton of
+    # the ink: one pixel down the middle of every stroke, wherever the drawing
+    # put it -- both walls of the rod, every rib, every scallop. The radius is
+    # the one number that is ours rather than the drawing's, and it is uniform,
+    # so the whole umbrella reads as one piece of glass.
     apex_y = int(np.nonzero(solid.any(axis=1))[0].min())
     apex_x = int(np.average(np.nonzero(solid[apex_y + 2])[0])) if solid[apex_y + 2].any() else w // 2
 
-    # The handle is DRAWN as two parallel lines, so as line art it has an
-    # inside. It should not: a handle is a stick, and a stick is one noodle.
-    # Skeletonising the handle's silhouette collapses those two lines to the
-    # single centreline running down it and round the hook.
-    #
-    # The canopy is left alone -- its lines are already single strokes, and
-    # its enclosed panels are meant to stay open for the film.
-    # The handle's silhouette, CLOSED before it is measured.
-    #
-    # The flood fill does not fill the stick: its interior escapes somewhere
-    # round the hook, so below the hem all that survives in `solid` is the two
-    # bare walls -- and the two walls are not even joined to each other down
-    # there, the hem that joins them sitting above `split`. Measure a
-    # centreline from that and you get one line per wall, which is why the
-    # handle came out as two noodles 21px apart instead of one.
-    #
-    # A morphological closing fixes it without needing to find the leak: a
-    # dilation welds anything less than 2r apart, and the matching erosion
-    # gives back the original outline. The walls are 14px apart, so r = 9
-    # closes the stick into a solid bar, and the hook's outline with it.
-    r_close = max(4.0, shaft_half * 0.7)
-    hl = L & (np.arange(h)[:, None] > hem_y)
-    dil = shape_mod.edt(hl.ravel(), w, h).reshape(h, w) <= r_close
-    closed = shape_mod.edt((~dil).ravel(), w, h).reshape(h, w) > r_close - 0.5
-    # From the hem down, not from `split` down. The stick begins at the hem,
-    # and `split` sits ~30 rows below it -- so restricting the closing to
-    # `split` left that band of the stick as two bare walls, and the junction
-    # kept a pair of noodles flaring out either side of where the single one
-    # should be. That flare is the dimple.
-    stick_top = hem_y
-    handle_solid = (closed | hl) & (np.arange(h)[:, None] > stick_top)
-
-    # Only the piece the shaft is actually in: the outer scallops dip below
-    # the canopy too, and they are not part of the handle.
-    seed = None
-    for y in range(stick_top + 4, h):
-        if handle_solid[y, shaft_x]:
-            seed = y * w + shaft_x
-            break
-    if seed is not None:
-        hs_flat = bytearray(int(v) for v in handle_solid.ravel())
-        for comp in img_mod.components(hs_flat, w, h):
-            if seed in set(comp):
-                keep = np.zeros((h, w), dtype=bool)
-                for idx in comp:
-                    keep[idx // w, idx % w] = True
-                handle_solid = keep
-                break
-
-    # The centreline by thinning -- now that there is something solid to thin.
-    #
-    # Thinning gave two parallel lines before, but that was the input's fault,
-    # not the algorithm's: it was handed the stick's two bare walls and
-    # faithfully thinned each one. On the closed silhouette it can only
-    # produce the single line down the middle.
-    #
-    # A distance-transform ridge was tried in its place and is worse here: on
-    # the straight shaft it is exact, but round the hook's curve the local
-    # maximum test drops in and out and the noodle came apart, leaving the
-    # hook as a detached blob. Thinning stays connected by construction, which
-    # is what the pen-path walk downstream needs.
-    skel = img_mod.skeletonise(bytearray(int(v) for v in handle_solid.ravel()), w, h)
-    HS = np.zeros((h, w), dtype=bool)
+    skel = img_mod.skeletonise(bytearray(int(v) for v in L.ravel()), w, h)
+    centreline = np.zeros((h, w), dtype=bool)
     for idx in skel:
-        HS[idx // w, idx % w] = True
-    print(f"  handle centreline: {int(HS.sum())}px by thinning")
-
-    # Thicken it by exactly one pixel, so the distance field has something
-    # solid to measure. Reading and writing the same array while shifting it
-    # compounds -- each shift grows what the next one reads, and a 1px dilation
-    # turns into a dozen.
-    grown = HS.copy()
-    for dy in (-1, 0, 1):
-        for dx in (-1, 0, 1):
-            grown |= np.roll(np.roll(HS, dy, 0), dx, 1)
-    HS = grown
-
-    # Run the shaft up to the apex.
-    #
-    # The handle is drawn as two lines meeting the hem, so collapsing it to a
-    # centreline leaves the noodle stopping at the hem with a notch either
-    # side of where those lines used to land. On a real umbrella the shaft
-    # carries on up to the top, and drawing it that way closes the notches and
-    # gives the ribs something to meet.
-    if HS.any():
-        hys, hxs = np.nonzero(HS)
-        top = hys.min()
-        for y in range(int(apex_y) + 2, top + 1):
-            for dx in (-1, 0, 1):
-                x = shaft_x + dx
-                if 0 <= x < w:
-                    HS[y, x] = True
-        print(f"  shaft carried up from y={top} to the apex at y={apex_y}")
-
-    # The canopy keeps every line it has -- including the outer scallops that
-    # dip below the hem -- except the stick, which the handle now owns as a
-    # single centreline. Without this exclusion both walls would be tubed
-    # twice: once as canopy line, once as handle.
-    stick_zone = ((np.arange(h)[:, None] > stick_top)
-                  & (np.abs(np.arange(w)[None, :] - shaft_x) <= stick_pad))
-    centreline = (L & (np.arange(h)[:, None] <= split) & ~stick_zone) | HS
-    print(f"  centreline: {int(centreline.sum())}px")
+        centreline[idx // w, idx % w] = True
+    print(f"  centreline: {int(centreline.sum())}px, the drawing's own strokes")
 
     # edt() returns the distance TO the nearest True, so this is the distance
     # to the centreline. Inverting it would measure the distance to background
@@ -345,33 +178,15 @@ def main():
     tube_r = args.tube + stroke * 0.5
     sd_tube = (d_centre - tube_r).astype(np.float32)
     half_tube = np.full((h, w), max(1.0, tube_r), dtype=np.float32)
-    print(f"  noodle radius {tube_r:.1f}px")
+    print(f"  noodle radius {tube_r:.1f}px on a {stroke:.1f}px stroke")
 
     # ── what is actually covered ────────────────────────────────────────
-    # The handle is DRAWN as an outlined stick, so its silhouette is the whole
-    # 46px bar. Left alone, the noodle runs down the middle of it and the film
-    # fills the rest -- a slab of glass sitting behind the handle, shaped like
-    # the outline we were trying to get rid of.
-    #
-    # Below the canopy there is no "inside" to fill: the handle IS the noodle.
-    # So coverage is the canopy's silhouette plus the tube, and nothing else.
-    # It also means the tube's own edge becomes a real coverage edge, which is
-    # what earns it the material's analytic antialiasing -- as a lighting
-    # boundary it had none, which is why it looked jagged.
-    rows0 = np.arange(h)[:, None]
-
-    # The stick is excluded from the silhouette as well as from the
-    # centreline. Its two drawn walls enclose a gap, and the flood fill counts
-    # that gap as canopy -- which left a 6px sliver of film down either side of
-    # the shaft for the rows between the hem and `split`. The scallops that
-    # used to notch this junction are already gone, trimmed from the line art
-    # before the tube was built; this is the last of it.
-    solid = (solid & (rows0 <= split) & ~stick_zone) | (sd_tube < 0.0)
-
-    full = solid[:split + 1].sum(axis=1)
-    hem_base = int(np.nonzero(full > full.max() * 0.85)[0].max()) if full.any() else split
-    print(f"  hem line at y={hem_base}")
-    print(f"  coverage: canopy silhouette + noodle = {int(solid.sum())}px")
+    # The drawing's silhouette -- its strokes and everything they enclose --
+    # plus the tube where it stands proud of that. The enclosed parts are the
+    # canopy's panels and the inside of the rod, which is what makes the rod
+    # read as a rod rather than as two rails with a gap down it.
+    solid = solid | (sd_tube < 0.0)
+    print(f"  coverage: silhouette + noodle = {int(solid.sum())}px")
 
     # ── signed distance + local half-thickness of the silhouette ────────
     print("distance field...", flush=True)
@@ -487,7 +302,7 @@ def main():
         last, _ = phases[-1]
         phases[-1] = (last, True)           # ...but pause once the ribs are all done
 
-    handle = walk(HS)
+    handle = walk(L & (rows > split))
     if handle and (handle[0] // w) > (handle[-1] // w):
         handle.reverse()        # start at the top, where it meets the canopy
     phases.append((handle, False))
@@ -626,12 +441,9 @@ def main():
         Image.fromarray(np.zeros((h, w), np.uint8)),
         Image.fromarray(np.full((h, w), 255, np.uint8)))).save(OUT_TUBE)
 
-    cov = np.clip(0.5 - sd, 0.0, 1.0)
-    Image.merge("RGBA", (
-        Image.fromarray(np.full((h, w), 255, np.uint8)),
-        Image.fromarray(np.full((h, w), 255, np.uint8)),
-        Image.fromarray(np.full((h, w), 255, np.uint8)),
-        Image.fromarray(np.round(cov * 255).astype(np.uint8)))).save(OUT_MASK)
+    # No coverage mask either. It was the last texture carrying a picture of
+    # the drawing, and nothing read it -- the shell loaded it into a
+    # ShaderEffectSource that was never bound to anything.
 
     with open(OUT_JSON, "w") as fh:
         json.dump({
@@ -639,7 +451,6 @@ def main():
             "font": os.path.basename(args.image),
             "size": h, "width": w, "height": h,
             "ascent": h, "descent": 0.0, "top": 0.0,
-            "mask": os.path.basename(OUT_MASK),
             "shape": os.path.basename(OUT_SHAPE),
             "order": os.path.basename(OUT_ORDER),
             "tube": os.path.basename(OUT_TUBE),

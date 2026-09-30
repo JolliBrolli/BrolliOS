@@ -561,32 +561,6 @@ ShellRoot {
                 // across R and G, and interpolating those two channels
                 // independently invents values that are nonsense between
                 // pixels.
-                // The shape, as its own texture. It must NOT be a child of
-                // anything on screen: an invisible child of a rendered item is
-                // simply not drawn, so it would be missing from the mask -- but
-                // an invisible item used directly as a sourceItem still renders
-                // into its texture. That difference is why the letters were
-                // showing through before they were written.
-                Image {
-                    id: markImage
-                    visible: false
-                    source: (root.isImage && root.wordmark.mask)
-                        ? Qt.resolvedUrl(root.wordmark.mask) : ""
-                    smooth: true
-                    mipmap: false
-                    cache: true
-                }
-
-                ShaderEffectSource {
-                    id: maskSource
-                    visible: false
-                    sourceItem: markImage
-                    hideSource: false
-                    live: true
-                    width: markImage.implicitWidth || 1
-                    height: markImage.implicitHeight || 1
-                }
-
                 Image {
                     id: orderImage
                     visible: false
